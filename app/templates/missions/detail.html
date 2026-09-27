@@ -3,6 +3,7 @@
    la référence quand plusieurs OM sont ouverts côte à côte. #}
 {% block title %}{{ mission.mission_name or mission.reference }} — {{ mission.driver.last_name }} {{ mission.driver.first_name }}{% endblock %}
 {% block content %}
+  {% from "missions/_return_dialog.html" import return_dialog %}
   {% include "missions/_pdf_tools.html" %}
   {# Dans le panneau flottant d'une mission liée, la fiche est entière : ce
      qui la quitte (modifier, dupliquer, envoyer, supprimer) s'ouvre dans un
@@ -28,7 +29,13 @@
         <form method="post" action="{{ url_for('missions.duplicate_mission', mission_id=mission.id) }}" target="{{ out }}" style="margin:0;">
           <button type="submit" class="btn btn--secondary">⧉ Dupliquer</button>
         </form>
-        <form method="post" action="{{ url_for('missions.create_return_mission', mission_id=mission.id) }}" target="{{ out }}" style="margin:0;">
+        {# La fenêtre (return_dialog.js) demande d'abord date et heure du
+           premier arrêt du retour, puis remplit ces deux champs. #}
+        <form method="post" action="{{ url_for('missions.create_return_mission', mission_id=mission.id) }}"
+              target="{{ out }}" style="margin:0;"
+              data-return-form data-return-default-date="{{ mission.mission_date or '' }}">
+          <input type="hidden" name="return_date">
+          <input type="hidden" name="return_time">
           <button type="submit" class="btn btn--secondary">↩ Créer le retour</button>
         </form>
         {# Les deux envois ferment la rangée, réduits à leur icône : bleu
@@ -214,6 +221,8 @@
     <button type="submit" class="btn btn--danger">Supprimer cet ordre de mission</button>
   </form>
   {% endif %}
+
+  {% if is_admin %}{{ return_dialog() }}{% endif %}
 
   <script>
     (function () {

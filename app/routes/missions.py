@@ -17,8 +17,8 @@ from app.routing import estimate_route, format_duration, add_minutes, build_driv
 from app.routes.settings import get_address_search_provider
 from app.utils import (
     balance_passenger_counts, day_label, fmt_date_full, fmt_date_long, fmt_date_short,
-    fmt_hours_minutes, fmt_time, legs_distance_summary, legs_time_summary, normalize_time,
-    now_paris, service_time_range, shuttle_number,
+    fmt_hours_minutes, fmt_time, is_valid_time, legs_distance_summary, legs_time_summary,
+    normalize_time, now_paris, service_time_range, shuttle_number,
 )
 
 bp = Blueprint("missions", __name__, url_prefix="/missions")
@@ -290,7 +290,8 @@ def new_mission():
         if attachment:
             repo.add_attachment(mission_id, *attachment)
         flash("Ordre de mission créé.", "success")
-        return redirect(url_for("missions.detail_mission", mission_id=mission_id))
+        return (_created_return_redirect(mission_id)
+                or redirect(url_for("missions.detail_mission", mission_id=mission_id)))
     return render_template("missions/form.html", is_new=True, **_form_context({
         "status": "brouillon", "motif": "Transport Occasionnel",
         "driver_id": None, "client_id": None, "om_template_id": None, "bc_template_id": None,
@@ -484,7 +485,8 @@ def edit_mission(mission_id):
         if attachment:
             repo.add_attachment(mission_id, *attachment)
         flash("Ordre de mission mis à jour.", "success")
-        return redirect(url_for("missions.detail_mission", mission_id=mission_id))
+        return (_created_return_redirect(mission_id)
+                or redirect(url_for("missions.detail_mission", mission_id=mission_id)))
     return render_template("missions/form.html", is_new=False, mission_id=mission_id,
                             **_form_context(existing))
 
@@ -517,12 +519,45 @@ def duplicate_mission(mission_id):
     return redirect(url_for("missions.edit_mission", mission_id=new_id))
 
 
+def _return_created_message(start_time):
+    replanned = normalize_time(start_time or "")
+    if is_valid_time(replanned):
+        return (f"Trajet retour créé et lié à l'aller : arrêts inversés et replanifiés à partir de "
+                f"{fmt_time(replanned)}, aux mêmes écarts. Vérifiez les trajets — « Générer les "
+                f"trajets depuis les arrêts » les refait d'un clic.")
+    return "Trajet retour créé et lié à l'aller (arrêts et trajets inversés) — vérifiez date et horaires."
+
+
+def _created_return_redirect(mission_id):
+    """« Enregistrer et créer le retour » : le formulaire vient d'être
+    enregistré, la fenêtre a donné date et heure du premier arrêt du retour.
+    Renvoie la redirection vers le retour créé, ou None si ce n'est pas ce
+    qui a été demandé."""
+    # Nom du bouton : envoyé seulement si c'est lui qui a soumis le
+    # formulaire, jamais par un « Enregistrer » ordinaire.
+    if not request.form.get("create_return"):
+        return None
+    start_date = request.form.get("create_return_date")
+    if not start_date:
+        return None
+    new_id = repo.create_return_mission(mission_id, start_date=start_date,
+                                        start_time=request.form.get("create_return_time"))
+    if not new_id:
+        return None
+    flash(_return_created_message(request.form.get("create_return_time")), "success")
+    return redirect(url_for("missions.edit_mission", mission_id=new_id))
+
+
 @bp.route("/<int:mission_id>/retour", methods=["POST"])
 def create_return_mission(mission_id):
-    new_id = repo.create_return_mission(mission_id)
+    """« Créer le retour » : la fenêtre qui précède demande la date et
+    l'heure du premier arrêt du retour, d'où les deux champs."""
+    new_id = repo.create_return_mission(mission_id,
+                                        start_date=request.form.get("return_date"),
+                                        start_time=request.form.get("return_time"))
     if not new_id:
         abort(404)
-    flash("Trajet retour créé et lié à l'aller (arrêts et trajets inversés) — vérifiez date et horaires.", "success")
+    flash(_return_created_message(request.form.get("return_time")), "success")
     return redirect(url_for("missions.edit_mission", mission_id=new_id))
 
 

@@ -245,16 +245,87 @@ def driver_color(driver):
     return DRIVER_COLOR_PALETTE[(driver.get("id") or 0) % len(DRIVER_COLOR_PALETTE)]
 
 
+# ------------------------------------------------ replanification (retour)
+def _respace_times(times, start_minutes):
+    """Suite d'heures réancrée sur `start_minutes`, écarts conservés.
+
+    L'écart est pris en valeur absolue : une suite décroissante — les heures
+    d'un aller repris à l'envers — redevient croissante. Le retour enchaîne
+    les mêmes tronçons dans l'autre sens, donc les mêmes durées (45 min,
+    1 h 20 puis 2 h à l'aller donnent 2 h, 1 h 20 puis 45 min au retour).
+
+    Un écart de plus de 12 heures est lu comme un passage de minuit (23:30
+    puis 00:40 font 1 h 10, pas 22 h 50) : aucune tournée n'attend une
+    demi-journée entre deux arrêts.
+
+    Renvoie des minutes depuis minuit du premier jour (donc au-delà de 1440
+    si la tournée passe minuit), et None là où il n'y avait pas d'heure.
+    """
+    out = []
+    elapsed = 0
+    previous = None
+    for value in times:
+        value = normalize_time(value or "")
+        minutes = _to_minutes(value) if is_valid_time(value) else None
+        if minutes is not None:
+            if previous is not None:
+                gap = abs(minutes - previous)
+                elapsed += 1440 - gap if gap > 720 else gap
+            previous = minutes
+        out.append(start_minutes + elapsed if minutes is not None else None)
+    return out
+
+
+def reschedule_stops(stops, start_date, start_time):
+    """Replanifie des arrêts : le premier passe à `start_time` le
+    `start_date`, les suivants gardent leurs écarts (voir _respace_times).
+    Modifie `stops` sur place et renvoie le décalage appliqué, en minutes
+    (utile pour suivre le reste de la mission), ou None si rien n'a bougé."""
+    day = parse_iso_date(start_date)
+    start = normalize_time(start_time or "")
+    if not day or not is_valid_time(start):
+        return None
+    start_minutes = _to_minutes(start)
+    times = _respace_times([s.get("stop_time") for s in stops], start_minutes)
+    shift = None
+    for stop, total in zip(stops, times):
+        if total is None:
+            stop["stop_date"] = day.isoformat()
+            continue
+        if shift is None:
+            shift = start_minutes - _to_minutes(normalize_time(stop["stop_time"]))
+        stop["stop_date"] = (day + timedelta(days=total // 1440)).isoformat()
+        stop["stop_time"] = f"{(total % 1440) // 60:02d}:{total % 60:02d}"
+    return shift
+
+
+def shift_leg_times(legs, minutes):
+    """Décale toutes les heures des trajets de `minutes` (modulo 24 h).
+
+    Les trajets d'un retour restent à revoir — leur ordre est inversé, pas
+    leur contenu — mais au moins ils tombent dans la bonne tranche horaire
+    plutôt qu'à celle de l'aller. Le bouton « Générer les trajets depuis les
+    arrêts » du formulaire les refait proprement."""
+    if not minutes:
+        return
+    for leg in legs:
+        for key in ("start_time", "end_time"):
+            value = normalize_time(leg.get(key) or "")
+            if is_valid_time(value):
+                total = (_to_minutes(value) + minutes) % 1440
+                leg[key] = f"{total // 60:02d}:{total % 60:02d}"
+
+
 def balance_passenger_counts(stops):
     """Équilibre le nombre de voyageurs des arrêts du Billet Collectif.
 
-    Quand tout le monde est ramassé à plusieurs endroits puis déposé au même
-    point (N prises en charge -> 1 dépose), la dépose porte forcément le
-    total des prises en charge. Symétriquement, un ramassage unique suivi de
-    plusieurs déposes porte le total des déposes.
+    Quand tout le monde est ramassé (une ou plusieurs prises en charge) puis
+    déposé au même point, la dépose porte forcément le total des prises en
+    charge. Symétriquement, un ramassage unique suivi de plusieurs déposes
+    porte le total des déposes.
 
-    L'arrêt « agrégé » est donc recalculé, jamais saisi. Les autres cas
-    (1 <-> 1, ou N <-> N) restent ambigus : on n'y touche pas.
+    L'arrêt « agrégé » est donc recalculé, jamais saisi. Reste ambigu, et
+    laissé à la saisie, le seul cas N <-> N.
 
     Modifie `stops` sur place et renvoie l'index recalculé, ou None.
     """
@@ -264,7 +335,7 @@ def balance_passenger_counts(stops):
     def total(group):
         return sum(int(s.get("passenger_count") or 1) for s in group)
 
-    if len(dropoffs) == 1 and len(pickups) >= 2:
+    if len(dropoffs) == 1 and len(pickups) >= 1:
         aggregated = dropoffs[0]
         aggregated["passenger_count"] = total(pickups)
     elif len(pickups) == 1 and len(dropoffs) >= 2:

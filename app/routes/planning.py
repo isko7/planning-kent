@@ -51,6 +51,9 @@ def _build_event(mission, drivers_by_id):
         "status": mission["status"],
         "date": mission["mission_date"],
         "url": url_for("missions.detail_mission", mission_id=mission["id"]),
+        # Œil de l'écran Planning : le PDF s'ouvre dans le panneau flottant,
+        # comme « Aperçu PDF » sur la fiche (static/js/pdf_viewer.js).
+        "pdf_url": url_for("missions.mission_pdf", mission_id=mission["id"], inline=1),
     }
     if start_time:
         event["all_day"] = False

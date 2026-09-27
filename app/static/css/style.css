@@ -428,6 +428,18 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
   gap: 28px; margin-bottom: 20px;
 }
 .week-nav-row .filter-bar { flex: 0 1 auto; margin: 0; padding: 12px 16px; }
+/* Filtres repliés : seul le bouton occupe la rangée tant qu'on ne les
+   ouvre pas (ils s'ouvrent d'eux-mêmes si un filtre est actif). */
+.filter-panel { flex: 0 1 auto; align-self: center; }
+.filter-panel > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+}
+.filter-panel > summary::-webkit-details-marker { display: none; }
+.filter-panel[open] > summary { margin-bottom: 10px; }
+.filter-panel__on {
+  display: inline-block; padding: 1px 7px; border-radius: 20px;
+  background: var(--red); color: #fff; font-size: 10.5px; font-weight: 700;
+}
 .week-nav {
   display: flex; align-items: center; justify-content: center; gap: 10px;
   flex: none; padding: 14px 20px;
@@ -440,6 +452,10 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
   box-shadow: 0 2px 8px rgba(214,41,58,.28);
 }
 .week-nav__arrow { font-size: 30px; line-height: 1; font-weight: 700; }
+/* « Semaine » puis « précédente » l'un sous l'autre : le bouton reste
+   étroit. L'espace du gabarit tombe en début de ligne, donc invisible —
+   mais il réapparaît sur téléphone, où les deux mots se suivent. */
+.week-nav__when { display: block; }
 .week-nav--next { flex-direction: row-reverse; }
 
 .planning-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 16px; font-size: 12.5px; color: var(--ink-soft); }
@@ -486,10 +502,17 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
 
 .planning-event {
   position: absolute; border-radius: 6px; padding: 5px 7px; overflow: hidden;
-  font-size: 11.5px; line-height: 1.25; color: #fff; text-decoration: none;
+  font-size: 11.5px; line-height: 1.25; color: #fff;
   box-shadow: 0 1px 2px rgba(0,0,0,.15); border: 1px solid rgba(0,0,0,.1);
 }
-.planning-event:hover { text-decoration: none; filter: brightness(0.94); }
+.planning-event:hover { filter: brightness(0.94); }
+/* Même principe que les cartes de l'agenda : lien étiré sur tout le bloc,
+   l'œil de l'aperçu PDF par-dessus. */
+.planning-event__open { display: block; color: inherit; text-decoration: none; }
+.planning-event__open::after { content: ""; position: absolute; inset: 0; }
+.planning-event__open:hover { text-decoration: none; }
+.planning-event__open > span { display: block; }
+.planning-allday-chip { position: relative; }
 /* Mission de nuit : les deux moitiés (soir + lendemain matin) sont deux
    blocs distincts. Bord plat et liseré clair du côté où elles se
    rejoignent, pour qu'elles se lisent comme une seule mission coupée par
@@ -520,6 +543,24 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
 .planning-event__meta { font-size: 11px; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .planning-event__vehicle { margin-top: 2px; font-size: 10.5px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Œil « aperçu du PDF » : au-dessus du lien étiré (z-index), discret sur la
+   grille — les blocs y sont parfois hauts de quelques pixels. */
+.planning-eye {
+  position: relative; z-index: 1; flex: none; display: inline-flex;
+  align-items: center; justify-content: center; width: 26px; height: 26px;
+  border-radius: 6px; color: var(--muted); text-decoration: none;
+}
+.planning-eye:hover { background: var(--hover); color: var(--ink); text-decoration: none; }
+.planning-event .planning-eye, .planning-allday-chip .planning-eye {
+  position: absolute; top: 2px; right: 2px; width: 20px; height: 20px;
+  color: #fff; opacity: .7; background: rgba(0, 0, 0, .18);
+}
+.planning-event .planning-eye:hover, .planning-allday-chip .planning-eye:hover {
+  opacity: 1; background: rgba(0, 0, 0, .35); color: #fff;
+}
+/* Le nom du bloc s'arrête avant l'œil, sinon il passe dessous. */
+.planning-event__time, .planning-allday-chip .planning-event__open { padding-right: 20px; }
+
 .planning-now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--red); z-index: 3; pointer-events: none; }
 .planning-now-line::before {
   content: ""; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px;
@@ -534,11 +575,21 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
 }
 .planning-agenda__day.is-today .planning-agenda__day-head { color: var(--red-text); border-bottom-color: var(--red); }
 .planning-agenda__empty { color: var(--muted); font-size: 13px; padding: 4px 0 2px; }
+/* La carte porte le cadre ; le lien qu'elle contient est étiré dessus
+   (::after) pour qu'un clic n'importe où ouvre la mission, tout en laissant
+   l'œil de l'aperçu PDF cliquable par-dessus. */
 .planning-chip {
-  display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; margin-bottom: 8px;
+  position: relative; display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 12px; margin-bottom: 8px;
   background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--chip-color, var(--red));
-  border-radius: 8px; text-decoration: none; color: var(--ink);
+  border-radius: 8px; color: var(--ink);
 }
+.planning-chip__open {
+  display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0;
+  color: inherit; text-decoration: none;
+}
+.planning-chip__open::after { content: ""; position: absolute; inset: 0; }
+.planning-chip__open:hover { text-decoration: none; }
 .planning-chip:hover { text-decoration: none; background: var(--hover-warm); }
 /* Vue agenda : la suite d'une mission de la veille est en retrait et en
    bordure pointillée, pour ne pas la compter comme une mission du jour. */
@@ -550,24 +601,28 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
 .planning-chip__meta { font-size: 11px; color: var(--muted); }
 .planning-chip__vehicle { font-size: 10.5px; color: var(--muted); opacity: .8; }
 
-/* Grille en semaine sur les écrans assez larges, agenda (cartes) en dessous */
+/* Vue par défaut, selon la largeur : grille en semaine sur un écran large,
+   agenda (cartes par jour) en dessous. */
 @media (min-width: 900px) {
   .planning-agenda { display: none; }
   .planning-grid { display: block; }
 }
 
-/* Sous 900 px, l'agenda reste la vue par défaut, mais le bouton de bascule
-   (planning.js) permet d'afficher la vraie grille hebdomadaire : elle garde
-   des colonnes lisibles et défile horizontalement. */
-.planning-view-toggle { display: none; }
+/* Le bouton de bascule (planning.js) fixe la vue, sur ordinateur comme sur
+   téléphone : ces règles-là priment sur les défauts ci-dessus. */
+body.planning-view-agenda .planning-agenda { display: block; }
+body.planning-view-agenda .planning-grid { display: none; }
+body.planning-view-grid .planning-agenda { display: none; }
+body.planning-view-grid .planning-grid { display: block; }
+
+/* Sous 900 px, la grille garde des colonnes lisibles et défile
+   horizontalement. */
 @media (max-width: 899px) {
-  .planning-view-toggle { display: inline-flex; }
-  body.planning-mobile-grid .planning-agenda { display: none; }
-  body.planning-mobile-grid .planning-grid { display: block; overflow-x: auto; overflow-y: hidden; }
+  body.planning-view-grid .planning-grid { overflow-x: auto; overflow-y: hidden; }
   /* Les trois rangées (jours, toute la journée, heures) partagent la même
      largeur : elles défilent ensemble sous l'ascenseur de .planning-grid. */
-  body.planning-mobile-grid .planning-grid__row { min-width: 760px; }
-  body.planning-mobile-grid .planning-grid__scroll { overflow: visible; }
+  body.planning-view-grid .planning-grid__row { min-width: 760px; }
+  body.planning-view-grid .planning-grid__scroll { overflow: visible; }
 }
 
 /* ------------------------------------------------------------ responsive */
@@ -622,7 +677,7 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
   .week-nav-row { flex-direction: column; gap: 10px; }
   .week-nav { justify-content: center; padding: 12px; font-size: 14px; }
   .week-nav__arrow { font-size: 22px; }
-  .week-nav__label br { display: none; }
+  .week-nav__when { display: inline; }
   .week-nav-row .filter-bar { width: 100%; }
   .week-title { font-size: 17px; }
 
@@ -634,10 +689,18 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
   .tab { white-space: nowrap; }
 
   /* Tableaux de consultation → cartes : une ligne par cellule, titre de
-     colonne à gauche (data-label posé par le script de base.html). */
+     colonne à gauche (data-label posé par le script de base.html). Chaque
+     ligne devient un bloc détaché — un simple filet ne séparait pas assez
+     deux missions, qui se lisaient comme une seule longue liste. */
   table.data-table, table.data-table tbody, table.data-table tr, table.data-table td { display: block; }
   table.data-table thead { display: none; }
-  table.data-table tr { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  table.data-table tr {
+    padding: 12px 14px; margin-bottom: 12px;
+    background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .07);
+  }
+  /* Le conteneur ferait un cadre autour des cadres : il s'efface. */
+  .card:has(> table.data-table) { padding: 0; background: none; border: 0; }
   table.data-table tr:hover td { background: none; }
   table.data-table td { border: 0; padding: 3px 0; text-align: right; overflow-wrap: anywhere; }
   table.data-table td:not([data-label]) { text-align: left; }
@@ -649,7 +712,8 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
   }
   table.data-table td .flag-row { justify-content: flex-end; }
   table.data-table td.row-actions { padding-top: 8px; }
-  .card > table.data-table tr:last-child { border-bottom: 0; }
+  /* Dernière ligne : elle garde son cadre, comme les autres. */
+  .card > table.data-table tr:last-child { border-bottom: 1px solid var(--line-strong); margin-bottom: 0; }
   .card[style*="padding:0"] > .btn-row { padding: 14px 16px 0 !important; }
 
   /* Tableaux de saisie (arrêts / trajets) → une carte par ligne, en grille */
@@ -1034,3 +1098,21 @@ input.tour-stop__time {
   .tour-actions > .btn { flex: 1 1 100%; justify-content: center; }
   .tour-map { height: 60vh; }
 }
+
+/* ------------------------------------------------------ créer le retour */
+/* Fenêtre « Créer le retour » : date et heure du premier arrêt, avant que
+   les suivants ne soient replanifiés aux mêmes écarts. */
+.return-dialog {
+  width: min(460px, calc(100vw - 32px)); padding: 0;
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  background: var(--surface); color: var(--ink); box-shadow: 0 20px 50px rgba(0,0,0,.3);
+}
+.return-dialog::backdrop { background: rgba(0,0,0,.45); }
+.return-dialog__form { padding: 20px; }
+.return-dialog h2 {
+  margin: 0 0 8px; font-size: 15px; text-transform: uppercase;
+  letter-spacing: .4px; color: var(--ink-soft);
+}
+.return-dialog .hint { margin: 0 0 16px; font-size: 12.5px; color: var(--muted); }
+.return-dialog .form-grid { gap: 0 16px; }
+.return-dialog .btn-row { justify-content: flex-end; margin-top: 4px; }

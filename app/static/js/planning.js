@@ -67,6 +67,18 @@
     });
   }
 
+  // Œil d'aperçu du PDF, posé sur chaque bloc : pdf_viewer.js l'intercepte
+  // (délégation sur le document) et l'ouvre dans le panneau flottant.
+  function eyeLink(ev) {
+    return '<a class="planning-eye" href="' + escapeHtml(ev.pdf_url) + '" target="_blank"'
+      + ' rel="noopener" data-pdf-preview data-pdf-title="Aperçu PDF — ' + escapeHtml(ev.title) + '"'
+      + ' title="Aperçu du PDF" aria-label="Aperçu du PDF de ' + escapeHtml(ev.title) + '">'
+      + '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none"'
+      + ' stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
+      + '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>'
+      + "</svg></a>";
+  }
+
   function renderGrid() {
     var dataEl = document.getElementById("planning-events");
     var gridEl = document.getElementById("planning-grid");
@@ -89,8 +101,7 @@
     document.querySelectorAll(".planning-grid__daycol").forEach(function (col) {
       var date = col.getAttribute("data-date");
       (timed[date] || []).forEach(function (ev) {
-        var a = document.createElement("a");
-        a.href = ev.url;
+        var a = document.createElement("div");
         a.className = "planning-event"
           + (ev.continues_next_day ? " planning-event--continues" : "")
           + (ev.continued_from_previous_day ? " planning-event--continued" : "");
@@ -104,13 +115,15 @@
         a.style.width = "calc(" + widthPct + "% - 3px)";
         a.style.background = ev.color;
         a.innerHTML =
-          '<div class="planning-event__time">' + escapeHtml(timeLabel(ev)) + "</div>" +
+          '<a class="planning-event__open" href="' + escapeHtml(ev.url) + '">' +
+          '<span class="planning-event__time">' + escapeHtml(timeLabel(ev)) + "</span>" +
           (ev.amplitude
-            ? '<div class="planning-event__amplitude">(' + escapeHtml(ev.amplitude) + ")</div>"
+            ? '<span class="planning-event__amplitude">(' + escapeHtml(ev.amplitude) + ")</span>"
             : "") +
-          '<div class="planning-event__title">' + escapeHtml(ev.title) + "</div>" +
-          '<div class="planning-event__meta">' + escapeHtml(ev.driver_label) + "</div>" +
-          (ev.vehicle ? '<div class="planning-event__vehicle">' + escapeHtml(ev.vehicle) + "</div>" : "");
+          '<span class="planning-event__title">' + escapeHtml(ev.title) + "</span>" +
+          '<span class="planning-event__meta">' + escapeHtml(ev.driver_label) + "</span>" +
+          (ev.vehicle ? '<span class="planning-event__vehicle">' + escapeHtml(ev.vehicle) + "</span>" : "") +
+          "</a>" + eyeLink(ev);
         col.appendChild(a);
       });
     });
@@ -120,12 +133,12 @@
       var slot = document.querySelector('.planning-grid__allday-slot[data-date="' + ev.date + '"]');
       if (!slot) return;
       anyAllDay = true;
-      var a = document.createElement("a");
-      a.href = ev.url;
+      var a = document.createElement("div");
       a.className = "planning-allday-chip";
       a.style.background = ev.color;
-      a.textContent = ev.title;
       a.title = ev.title + " — " + ev.driver_label;
+      a.innerHTML = '<a class="planning-event__open" href="' + escapeHtml(ev.url) + '">'
+        + escapeHtml(ev.title) + "</a>" + eyeLink(ev);
       slot.appendChild(a);
     });
     if (!anyAllDay) {
@@ -204,38 +217,50 @@
   // Téléphone : bascule entre l'agenda (liste par jour, vue par défaut) et
   // la grille hebdomadaire. Les deux vues sont déjà dans la page — seul le
   // CSS change — et le choix est mémorisé d'un écran à l'autre.
-  var VIEW_KEY = "kent.planning.mobileGrid";
+  var VIEW_KEY = "kent.planning.view";
 
+  // Deux vues, partout : la grille hebdomadaire et l'agenda (liste par
+  // jour). Sans choix mémorisé, le CSS décide selon la largeur — grille sur
+  // ordinateur, agenda sur téléphone. Le bouton fixe le choix, qui vaut
+  // alors pour les deux tailles d'écran.
   function initViewToggle() {
     var btn = document.getElementById("planning-view-toggle");
     if (!btn) return;
     var label = btn.querySelector("[data-view-label]") || btn;
+    var wide = window.matchMedia("(min-width: 900px)");
 
-    function apply(grid) {
-      document.body.classList.toggle("planning-mobile-grid", grid);
-      btn.setAttribute("aria-pressed", grid ? "true" : "false");
-      label.textContent = grid ? "📋 Vue agenda" : "📅 Vue calendrier";
+    function current() {
+      if (document.body.classList.contains("planning-view-grid")) return "grid";
+      if (document.body.classList.contains("planning-view-agenda")) return "agenda";
+      return wide.matches ? "grid" : "agenda";  // défaut du CSS
     }
-    function remember(grid) {
+    function apply(view) {
+      document.body.classList.toggle("planning-view-grid", view === "grid");
+      document.body.classList.toggle("planning-view-agenda", view === "agenda");
+      btn.setAttribute("aria-pressed", view === "grid" ? "true" : "false");
+      // Le bouton annonce la vue vers laquelle il bascule.
+      label.textContent = view === "grid" ? "📋 Vue agenda" : "📅 Vue calendrier";
+    }
+    function remember(view) {
       try {
-        localStorage.setItem(VIEW_KEY, grid ? "1" : "0");
+        localStorage.setItem(VIEW_KEY, view);
       } catch (e) { /* tant pis, le choix ne survivra pas à la page */ }
     }
-    var saved = false;
+    var saved = null;
     try {
-      saved = localStorage.getItem(VIEW_KEY) === "1";
+      saved = localStorage.getItem(VIEW_KEY);
     } catch (e) { /* rien de mémorisé */ }
 
-    apply(saved);
+    apply(saved === "grid" || saved === "agenda" ? saved : current());
     btn.addEventListener("click", function () {
-      var grid = !document.body.classList.contains("planning-mobile-grid");
-      apply(grid);
-      remember(grid);
+      var view = current() === "grid" ? "agenda" : "grid";
+      apply(view);
+      remember(view);
       // Grille affichée après coup : on la cale sur le jour courant plutôt
       // que sur le lundi.
-      if (grid) scrollToToday();
+      if (view === "grid") scrollToToday();
     });
-    if (saved) scrollToToday();
+    if (current() === "grid") scrollToToday();
   }
 
   // Cale le défilement horizontal de la grille sur le jour courant.

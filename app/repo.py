@@ -10,7 +10,8 @@ import re
 from datetime import datetime, date
 from app.config import PINNED_CLIENT_NAME
 from app.db import get_db
-from app.utils import legs_time_summary, now_paris
+from app.utils import (legs_time_summary, now_paris, parse_iso_date,
+                       reschedule_stops, shift_leg_times)
 
 
 def row_to_dict(row):
@@ -718,13 +719,19 @@ def _swap_direction_suffix(name):
     return f"{prefix or ''}{sep or ''}{_DIRECTION_SWAP[letter]}"
 
 
-def create_return_mission(mission_id):
+def create_return_mission(mission_id, start_date=None, start_time=None):
     """Crée le trajet retour : arrêts et trajets dans l'ordre inverse,
     prise en charge <-> dépose inversées, libellés de trajet retournés
     (« A → B » devient « B → A », prise/fin de service échangées), et
     suffixe de sens A/R du nom de mission basculé.
-    Les horaires ne sont volontairement pas recalculés (à ajuster) :
-    un nouveau brouillon est créé, comme pour la duplication simple."""
+
+    Avec `start_date` et `start_time` (fenêtre « Créer le retour »), les
+    arrêts sont replanifiés : le premier à l'heure donnée, les suivants aux
+    mêmes écarts qu'à l'aller (app/utils.py:reschedule_stops). Les trajets
+    suivent le même décalage, mais leur ordre reste à revoir — le bouton
+    « Générer les trajets depuis les arrêts » du formulaire les refait.
+    Sans date ni heure, rien n'est recalculé : un brouillon à ajuster, comme
+    pour la duplication simple."""
     src = get_mission(mission_id)
     if not src:
         return None
@@ -734,6 +741,10 @@ def create_return_mission(mission_id):
                      for l in reversed(src["legs"])]
     data["stops"] = [_copy_stop(s) | {"stop_type": _STOP_TYPE_SWAP.get(s["stop_type"], s["stop_type"])}
                       for s in reversed(src["stops"])]
+    shift = reschedule_stops(data["stops"], start_date, start_time)
+    if shift is not None:
+        data["mission_date"] = parse_iso_date(start_date).isoformat()
+        shift_leg_times(data["legs"], shift)
     # L'aller et son retour sont liés d'office (section « Missions liées »).
     data["linked_mission_ids"] = [mission_id]
     return create_mission(data)

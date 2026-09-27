@@ -217,7 +217,7 @@
       </table>
       <button type="button" id="add-stop-row" class="btn btn--secondary btn--sm add-row-btn">+ Ajouter un arrêt</button>
       <div class="hint" style="margin-top:8px;">Voyageurs : si tous convergent vers un seul arrêt
-        (plusieurs prises en charge pour une dépose, ou l'inverse), cet arrêt-là porte
+        (une ou plusieurs prises en charge pour une dépose, ou l'inverse), cet arrêt-là porte
         automatiquement la somme des autres et n'est pas saisissable.<br>
         Astuce : entrez d'abord la prise en charge puis les dépose (ou l'inverse), dans l'ordre chronologique — c'est ce qui alimente le tableau "Trajet" de l'OM ci-dessous via le bouton de génération.</div>
     </div>
@@ -306,6 +306,12 @@
 
     <div class="btn-row">
       <button type="submit" class="btn btn--primary">Enregistrer</button>
+      {# Enregistre, puis crée le retour à la date et à l'heure demandées
+         dans la fenêtre (champs cachés ci-dessous, lus par la vue). #}
+      <button type="submit" name="create_return" value="1" class="btn btn--secondary"
+              id="save-and-return">↩ Enregistrer et créer le retour</button>
+      <input type="hidden" name="create_return_date">
+      <input type="hidden" name="create_return_time">
       <a href="{{ url_for('missions.list_missions_view') }}" class="btn btn--secondary">Annuler</a>
     </div>
   </form>
@@ -374,6 +380,8 @@
      doit trouver google.maps.places/DistanceMatrixService déjà prêts. #}
   <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&language=fr&region=FR"></script>
   {% endif %}
+  {% from "missions/_return_dialog.html" import return_dialog %}
+  {{ return_dialog() }}
   <script src="{{ url_for('static', filename='js/address_autocomplete.js') }}"></script>
   <script src="{{ url_for('static', filename='js/mission_form.js') }}"></script>
   <script src="{{ url_for('static', filename='js/stops_ocr.js') }}"></script>

@@ -4,6 +4,9 @@
    1120 px donnent des créneaux illisibles. #}
 {% block container_class %}container--wide{% endblock %}
 {% block content %}
+  {# Aperçu du PDF d'une mission dans le panneau flottant, depuis l'œil de
+     chaque élément du planning : mêmes outils que la fiche. #}
+  {% include "missions/_pdf_tools.html" %}
   <div class="page-head">
     <div>
       <h1>Planning</h1>
@@ -96,9 +99,19 @@
        href="{{ url_for('planning.calendar_view', date=prev_date, driver_id=filters.driver_id) }}"
        title="Semaine précédente" rel="prev">
       <span class="week-nav__arrow" aria-hidden="true">←</span>
-      <span class="week-nav__label">Semaine<br>précédente</span>
+      {# L'espace avant le second mot compte : sur téléphone les deux se
+         suivent sur une ligne, sur écran large le CSS les empile. #}
+      <span class="week-nav__label">Semaine <span class="week-nav__when">précédente</span></span>
     </a>
 
+  {# Replié par défaut : la semaine affichée se choisit aux flèches, le
+     filtre chauffeur ne sert qu'à l'occasion. Ouvert d'office tant qu'un
+     filtre est actif, pour qu'il ne s'oublie pas. #}
+  <details class="filter-panel"{{ ' open' if filters.driver_id }}>
+    <summary class="btn btn--secondary">
+      <span aria-hidden="true">🔎</span> Filtres
+      {%- if filters.driver_id %}<span class="filter-panel__on">1 actif</span>{% endif %}
+    </summary>
   <form method="get" class="card filter-bar" style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;">
     {% if not own_only %}
     <div class="field" style="margin:0; min-width:180px;">
@@ -117,13 +130,17 @@
     </div>
     <button type="submit" class="btn btn--secondary">Afficher</button>
     <a href="{{ url_for('planning.calendar_view', driver_id=filters.driver_id) }}" class="btn btn--secondary">Aujourd'hui</a>
+    {% if filters.driver_id %}
+    <a href="{{ url_for('planning.calendar_view', date=monday) }}" class="btn btn--ghost">Retirer le filtre</a>
+    {% endif %}
   </form>
+  </details>
 
     <a class="week-nav week-nav--next"
        href="{{ url_for('planning.calendar_view', date=next_date, driver_id=filters.driver_id) }}"
        title="Semaine suivante" rel="next">
       <span class="week-nav__arrow" aria-hidden="true">→</span>
-      <span class="week-nav__label">Semaine<br>suivante</span>
+      <span class="week-nav__label">Semaine <span class="week-nav__when">suivante</span></span>
     </a>
   </div>
 
@@ -170,7 +187,10 @@
       {% set day_events = events_by_day[d.isoformat()] %}
       {% if day_events %}
         {% for ev in day_events %}
-        <a href="{{ ev.url }}" class="planning-chip{{ ' planning-chip--continued' if ev.continued_from_previous_day }}" style="--chip-color: {{ ev.color }};">
+        {# La carte entière mène à l'ordre de mission (lien étiré en CSS) ;
+           l'œil, au-dessus, ouvre l'aperçu du PDF dans le panneau. #}
+        <div class="planning-chip{{ ' planning-chip--continued' if ev.continued_from_previous_day }}" style="--chip-color: {{ ev.color }};">
+        <a href="{{ ev.url }}" class="planning-chip__open">
           <span class="planning-chip__time">
             {%- if ev.all_day -%}
               Toute la journée
@@ -187,6 +207,15 @@
           <span class="planning-chip__meta">{{ ev.driver_label }}</span>
           {% if ev.vehicle %}<span class="planning-chip__vehicle">{{ ev.vehicle }}</span>{% endif %}
         </a>
+        <a class="planning-eye" href="{{ ev.pdf_url }}" target="_blank" rel="noopener"
+           data-pdf-preview data-pdf-title="Aperçu PDF — {{ ev.title }}"
+           title="Aperçu du PDF" aria-label="Aperçu du PDF de {{ ev.title }}">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </a>
+        </div>
         {% endfor %}
       {% else %}
       <div class="planning-agenda__empty">Aucune mission</div>

@@ -1,0 +1,33 @@
+{# Fenêtre « Créer le retour » : date et heure du premier arrêt du retour.
+   Partagée par la fiche (bouton « Créer le retour ») et le formulaire
+   (« Enregistrer et créer le retour »). Les arrêts suivants sont
+   replanifiés aux mêmes écarts (app/utils.py:reschedule_stops).
+
+   Le comportement est dans static/js/return_dialog.js : il intercepte les
+   formulaires marqués `data-return-form` et expose KentReturn.ask() pour le
+   formulaire d'ordre de mission, qui doit d'abord s'enregistrer. #}
+{% macro return_dialog() %}
+<dialog class="return-dialog" data-return-dialog aria-labelledby="return-dialog-title">
+  <form method="dialog" class="return-dialog__form">
+    <h2 id="return-dialog-title">Créer le retour</h2>
+    <p class="hint">Le retour reprend les arrêts dans l'ordre inverse. Donnez la date et l'heure de
+      son <strong>premier arrêt</strong> : les suivants gardent les mêmes écarts qu'à l'aller.</p>
+    <div class="form-grid">
+      <div class="field">
+        <label for="return-date">Date du retour</label>
+        <input type="date" id="return-date" data-return-date required>
+      </div>
+      <div class="field">
+        <label for="return-time">Heure du 1<sup>er</sup> arrêt</label>
+        <input type="text" id="return-time" data-return-time inputmode="numeric" maxlength="5"
+               placeholder="05h45" autocomplete="off" required>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button type="button" class="btn btn--ghost" data-return-cancel>Annuler</button>
+      <button type="submit" class="btn btn--primary">Créer le retour</button>
+    </div>
+  </form>
+</dialog>
+<script src="{{ url_for('static', filename='js/return_dialog.js') }}"></script>
+{% endmacro %}

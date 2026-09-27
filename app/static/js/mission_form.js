@@ -701,6 +701,26 @@ function initNewClientAddress(fields) {
   });
 }
 
+// « Enregistrer et créer le retour » : la fenêtre demande la date et
+// l'heure du premier arrêt du retour, puis le formulaire part avec — c'est
+// ce bouton-là qui soumet, donc la vue sait qu'il faut enchaîner.
+function initSaveAndReturn() {
+  const button = document.getElementById("save-and-return");
+  const form = document.getElementById("mission-form");
+  if (!button || !form || !window.KentReturn) return;
+  button.addEventListener("click", (e) => {
+    if (button.dataset.ready) return;  // deuxième passage : on laisse partir
+    e.preventDefault();
+    const missionDate = form.querySelector('[name="mission_date"]');
+    KentReturn.ask(missionDate && missionDate.value, (date, time) => {
+      form.querySelector('[name="create_return_date"]').value = date;
+      form.querySelector('[name="create_return_time"]').value = time;
+      button.dataset.ready = "1";
+      button.click();  // soumet vraiment, contrôles de saisie compris
+    });
+  });
+}
+
 function initNewClient() {
   const box = document.getElementById("new-client-box");
   const toggle = document.getElementById("new-client-toggle");
@@ -771,7 +791,9 @@ function initNewClient() {
 
 // ---------------------------------------------------- génération legs
 // Voyageurs des arrêts (Billet Collectif) : quand tous les voyageurs
-// convergent vers un seul arrêt, celui-ci porte la somme des autres.
+// convergent vers un seul arrêt, celui-ci porte la somme des autres —
+// y compris avec une seule prise en charge et une seule dépose, où la
+// dépose reprend simplement le compte de la prise en charge.
 // Même règle que côté serveur (app/utils.py:balance_passenger_counts), pour
 // que le champ se mette à jour sous les yeux de la personne qui saisit.
 function balancePassengerCounts() {
@@ -793,14 +815,14 @@ function balancePassengerCounts() {
 
   let aggregated = null;
   let sources = null;
-  if (dropoffs.length === 1 && pickups.length >= 2) {
+  if (dropoffs.length === 1 && pickups.length >= 1) {
     aggregated = dropoffs[0];
     sources = pickups;
   } else if (pickups.length === 1 && dropoffs.length >= 2) {
     aggregated = pickups[0];
     sources = dropoffs;
   } else {
-    return; // 1 <-> 1 ou N <-> N : rien d'évident à déduire, on laisse saisir.
+    return; // N <-> N : rien d'évident à déduire, on laisse saisir.
   }
 
   const total = sources.reduce(
@@ -904,6 +926,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   initNewClient();
+  initSaveAndReturn();
   initBcClient();
   initEmissionDatePreview();
   initAddressProviderToggle();

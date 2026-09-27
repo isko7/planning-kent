@@ -42,7 +42,11 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   envois, récap de facturation, boutons d'action) : ce qui s'y modifie y
   revient, ce qui en sort (modifier, dupliquer, envoyer, supprimer) s'ouvre
   dans un nouvel onglet. « Créer le retour » lie d'office l'aller et son
-  retour.
+  retour : une fenêtre demande la date et l'heure du **premier arrêt** du
+  retour, et les arrêts suivants sont replanifiés aux mêmes écarts qu'à
+  l'aller (les trajets, eux, restent à revoir — « Générer les trajets depuis
+  les arrêts » les refait). Le formulaire propose la même chose d'un coup
+  avec « Enregistrer et créer le retour ».
 - **Génération PDF** : un seul PDF = **OM + pièces jointes + BC**, fusionnés.
   Pièces jointes (PDF/PNG/JPG) insérables avant l'OM, entre l'OM et le BC
   (page 2, par défaut), ou après le BC — depuis la fiche, ou dans le
@@ -62,10 +66,14 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
 - **Templates OM / BC modifiables** : le HTML/Jinja2 qui génère les PDF est
   stocké en base, éditable depuis *Templates* (aperçu sur données de démo,
   duplication pour tester une variante).
-- **Planning** : vue calendrier hebdomadaire des missions (grille horaire
-  sur desktop, agenda par jour sur mobile), colorée par chauffeur (couleur
-  personnalisable sur la fiche chauffeur), clic sur une mission → son
-  ordre de mission. Flux **iCalendar** partageable (tout le monde, ou un
+- **Planning** : deux vues des missions de la semaine — la grille horaire
+  et l'agenda (liste par jour) — avec un bouton pour passer de l'une à
+  l'autre, sur ordinateur comme sur téléphone ; par défaut la grille sur
+  ordinateur, l'agenda sur téléphone. Coloré par chauffeur (couleur
+  personnalisable sur la fiche chauffeur), clic sur une mission → son ordre
+  de mission, et un œil sur chaque élément en ouvre le PDF dans un panneau
+  flottant, sans quitter le planning. Les filtres sont repliés tant qu'aucun
+  n'est actif. Flux **iCalendar** partageable (tout le monde, ou un
   chauffeur seul) : « Partager le calendrier » donne un bouton par agenda —
   Google Agenda (le chemin à suivre aussi pour Samsung Calendar et les autres
   agendas Android, via le compte Google du téléphone), Calendrier iPhone, et
