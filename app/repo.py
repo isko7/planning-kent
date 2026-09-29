@@ -11,7 +11,7 @@ from datetime import datetime, date
 from app.config import PINNED_CLIENT_NAME
 from app.db import get_db
 from app.utils import (legs_time_summary, now_paris, parse_iso_date,
-                       reschedule_stops, shift_leg_times)
+                       reschedule_stops, retime_legs_from_stops)
 
 
 def row_to_dict(row):
@@ -806,11 +806,13 @@ def create_return_mission(mission_id, start_date=None, start_time=None):
 
     Avec `start_date` et `start_time` (fenêtre « Créer le retour »), les
     arrêts sont replanifiés : le premier à l'heure donnée, les suivants aux
-    mêmes écarts qu'à l'aller (app/utils.py:reschedule_stops). Les trajets
-    suivent le même décalage, mais leur ordre reste à revoir — le bouton
-    « Générer les trajets depuis les arrêts » du formulaire les refait.
-    Sans date ni heure, rien n'est recalculé : un brouillon à ajuster, comme
-    pour la duplication simple."""
+    mêmes écarts qu'à l'aller (app/utils.py:reschedule_stops).
+
+    Les heures des trajets sont ensuite **recalculées depuis ces arrêts**
+    (retime_legs_from_stops), et non décalées : les trajets du retour sont
+    ceux de l'aller pris à l'envers, leurs heures d'origine ne veulent plus
+    rien dire dans ce sens-là. Le résultat est celui qu'aurait donné le
+    bouton « Générer les trajets depuis les arrêts » du formulaire."""
     src = get_mission(mission_id)
     if not src:
         return None
@@ -820,10 +822,11 @@ def create_return_mission(mission_id, start_date=None, start_time=None):
                      for l in reversed(src["legs"])]
     data["stops"] = [_copy_stop(s) | {"stop_type": _STOP_TYPE_SWAP.get(s["stop_type"], s["stop_type"])}
                       for s in reversed(src["stops"])]
-    shift = reschedule_stops(data["stops"], start_date, start_time)
-    if shift is not None:
+    if reschedule_stops(data["stops"], start_date, start_time) is not None:
         data["mission_date"] = parse_iso_date(start_date).isoformat()
-        shift_leg_times(data["legs"], shift)
+    # Recalé même sans date saisie : dans les deux cas les arrêts sont la
+    # seule source d'heures cohérente pour le sens retour.
+    retime_legs_from_stops(data["legs"], data["stops"])
     # L'aller et son retour sont liés d'office (section « Missions liées »).
     data["linked_mission_ids"] = [mission_id]
     return create_mission(data)

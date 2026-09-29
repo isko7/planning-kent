@@ -212,7 +212,7 @@
               </select>
             </td>
             <td><input type="date" name="stop_date[]" value="{{ s.stop_date or mission.mission_date or '' }}"></td>
-            <td><input type="text" name="stop_time[]" value="{{ s.stop_time or '' }}" placeholder="13:00"></td>
+            <td><input type="text" name="stop_time[]" value="{{ s.stop_time or '' }}" placeholder="13:00" data-time></td>
             <td><input type="text" name="stop_city[]" value="{{ s.city or '' }}"></td>
             <td><input type="text" name="stop_address[]" value="{{ s.address or '' }}"></td>
             <td><input type="number" min="1" name="stop_passenger_count[]" value="{{ s.passenger_count or 1 }}"></td>
@@ -267,8 +267,8 @@
         <tbody id="legs-body">
           {% for l in (mission.legs or []) %}
           <tr>
-            <td><input type="text" name="leg_start_time[]" value="{{ l.start_time or '' }}" placeholder="11:00"></td>
-            <td><input type="text" name="leg_end_time[]" value="{{ l.end_time or '' }}" placeholder="11:00"></td>
+            <td><input type="text" name="leg_start_time[]" value="{{ l.start_time or '' }}" placeholder="11:00" data-time></td>
+            <td><input type="text" name="leg_end_time[]" value="{{ l.end_time or '' }}" placeholder="11:00" data-time></td>
             <td>
               {# « pause » et « relais » sont des valeurs à part entière ; la
                  valeur vide ne signifie que « pas encore choisi », ce qui
@@ -357,7 +357,7 @@
         </select>
       </td>
       <td><input type="date" name="stop_date[]" value="{{ mission.mission_date or '' }}"></td>
-      <td><input type="text" name="stop_time[]" placeholder="13:00"></td>
+      <td><input type="text" name="stop_time[]" placeholder="13:00" data-time></td>
       <td><input type="text" name="stop_city[]"></td>
       <td><input type="text" name="stop_address[]"></td>
       <td><input type="number" min="1" name="stop_passenger_count[]" value="1"></td>
@@ -371,8 +371,8 @@
 
   <template id="leg-row-template">
     <tr>
-      <td><input type="text" name="leg_start_time[]" placeholder="11:00"></td>
-      <td><input type="text" name="leg_end_time[]" placeholder="11:00"></td>
+      <td><input type="text" name="leg_start_time[]" placeholder="11:00" data-time></td>
+      <td><input type="text" name="leg_end_time[]" placeholder="11:00" data-time></td>
       <td>
         <select name="leg_vehicle_id[]" class="leg-vehicle">
           <option value="">— Choisir —</option>

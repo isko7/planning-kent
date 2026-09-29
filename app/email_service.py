@@ -78,21 +78,109 @@ GRAPH_MAX_MESSAGE_BYTES = 4 * 1024 * 1024
 # l'URL brute — la version texte brut (fallback) garde elle l'URL en clair.
 _ITINERARY_LINE_RE = re.compile(r"^Itin[ée]raire\s*:\s*(\S+)$")
 
+# Lignes « <lieu> : <lien Waze> » ajoutées par l'envoi d'itinéraire
+# (missions.py:send_itinerary). En HTML, c'est l'adresse elle-même qui
+# devient le lien : la liste se lit comme une suite d'arrêts, et l'URL
+# brute — longue et encodée — n'encombre pas. La version texte, elle, la
+# garde en clair, faute de pouvoir rendre quoi que ce soit cliquable.
+_WAZE_LINE_RE = re.compile(r"^(.+?)\s*:\s*(https://\S*waze\.com/\S+)$")
+
 
 class EmailError(Exception):
     pass
 
 
+# Styles en ligne : les clients de messagerie ignorent les feuilles de
+# style (Gmail retire <style>), et l'espacement doit venir des marges de
+# vrais blocs — empiler des <br> donne des écarts irréguliers d'un client
+# à l'autre, c'est ce qui rendait la liste des arrêts bancale.
+_HTML_WRAPPER = ('<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;'
+                 'line-height:1.5;color:#1b1c21;">')
+_STYLE_PARAGRAPHE = "margin:0 0 14px;"
+_STYLE_BOUTON = ("display:inline-block;padding:11px 18px;background:#d6293a;color:#ffffff;"
+                 "text-decoration:none;border-radius:6px;font-weight:bold;")
+_STYLE_TITRE = "margin:26px 0 10px;font-weight:bold;"
+_STYLE_ARRET = ("display:block;padding:12px 14px;background:#f5f6f8;border:1px solid #dcdfe4;"
+                "border-radius:6px;color:#1d63d8;text-decoration:none;font-weight:bold;")
+
+
+def _paragraphe(lignes, apres_bloc=False):
+    """Un bloc de lignes consécutives -> un paragraphe, lignes séparées par
+    des <br>. Les lignes vides ne servent qu'à délimiter les paragraphes :
+    elles ne produisent pas d'espace supplémentaire, d'où un interligne
+    identique partout. `apres_bloc` détache le paragraphe de la pastille
+    ou du bouton qui le précède."""
+    contenu = "<br>".join(html.escape(l) for l in lignes)
+    marge = "margin:20px 0 14px;" if apres_bloc else _STYLE_PARAGRAPHE
+    return f'<p style="{marge}">{contenu}</p>'
+
+
 def _body_to_html(body):
-    lines = []
-    for line in body.split("\n"):
-        m = _ITINERARY_LINE_RE.match(line.strip())
+    """Version HTML du corps. Trois lignes reçoivent une mise en forme
+    propre : l'itinéraire Google Maps devient un bouton, le titre de la
+    liste Waze un intertitre, et chaque arrêt une pastille cliquable
+    pleine largeur — assez haute pour être visée du doigt."""
+    lignes = body.split("\n")
+    blocs, tampon = [], []
+    # Vrai quand le dernier élément posé est un bouton, un intertitre ou
+    # une pastille d'arrêt : le paragraphe suivant s'en écarte un peu.
+    apres_bloc = [False]
+
+    def vider():
+        """Le texte en attente devient un paragraphe par groupe de lignes
+        consécutives. Les lignes vides ne font que séparer les groupes :
+        elles ne produisent aucun espace propre, sans quoi deux lignes
+        vides d'affilée creuseraient un écart plus grand qu'ailleurs — la
+        source des trous irréguliers."""
+        groupe = []
+        for ligne in tampon:
+            if ligne.strip():
+                groupe.append(ligne)
+                continue
+            if groupe:
+                blocs.append(_paragraphe(groupe, apres_bloc[0]))
+                apres_bloc[0] = False
+                groupe = []
+        if groupe:
+            blocs.append(_paragraphe(groupe, apres_bloc[0]))
+            apres_bloc[0] = False
+        tampon.clear()
+
+    for i, ligne in enumerate(lignes):
+        nue = ligne.strip()
+
+        m = _ITINERARY_LINE_RE.match(nue)
         if m:
+            vider()
             url = html.escape(m.group(1), quote=True)
-            lines.append(f'Itinéraire : <a href="{url}">Itinéraire Google Maps</a>')
-        else:
-            lines.append(html.escape(line))
-    return "<html><body>" + "<br>\n".join(lines) + "</body></html>"
+            blocs.append(f'<div style="margin:0 0 6px;"><a href="{url}" '
+                         f'style="{_STYLE_BOUTON}">Itinéraire complet — Google Maps</a></div>')
+            apres_bloc[0] = True
+            continue
+
+        m = _WAZE_LINE_RE.match(nue)
+        if m:
+            vider()
+            place = html.escape(m.group(1))
+            url = html.escape(m.group(2), quote=True)
+            blocs.append(f'<div style="margin:0 0 8px;"><a href="{url}" '
+                         f'style="{_STYLE_ARRET}">{place}</a></div>')
+            apres_bloc[0] = True
+            continue
+
+        # Ligne d'introduction de la liste des arrêts : reconnue à ce qui la
+        # suit, pour ne pas figer sa formulation ici.
+        suivante = lignes[i + 1].strip() if i + 1 < len(lignes) else ""
+        if nue.endswith(":") and _WAZE_LINE_RE.match(suivante):
+            vider()
+            blocs.append(f'<div style="{_STYLE_TITRE}">{html.escape(nue.rstrip(":").strip())}</div>')
+            apres_bloc[0] = True
+            continue
+
+        tampon.append(ligne)
+
+    vider()
+    return "<html><body>" + _HTML_WRAPPER + "".join(blocs) + "</div></body></html>"
 
 
 # --------------------------------------------------------- mode "basic"

@@ -320,21 +320,57 @@ def reschedule_stops(stops, start_date, start_time):
     return shift
 
 
-def shift_leg_times(legs, minutes):
-    """Décale toutes les heures des trajets de `minutes` (modulo 24 h).
+# Même flèche que les libellés de trajet du formulaire
+# (mission_form.js) et de routing.py.
+LEG_ARROW = " → "
 
-    Les trajets d'un retour restent à revoir — leur ordre est inversé, pas
-    leur contenu — mais au moins ils tombent dans la bonne tranche horaire
-    plutôt qu'à celle de l'aller. Le bouton « Générer les trajets depuis les
-    arrêts » du formulaire les refait proprement."""
-    if not minutes:
-        return
-    for leg in legs:
-        for key in ("start_time", "end_time"):
-            value = normalize_time(leg.get(key) or "")
-            if is_valid_time(value):
-                total = (_to_minutes(value) + minutes) % 1440
-                leg[key] = f"{total // 60:02d}:{total % 60:02d}"
+
+def stop_place_label(stop):
+    """Libellé d'un arrêt tel qu'il apparaît dans un trajet : « VILLE,
+    adresse », ou l'un des deux si l'autre manque. Même règle que le bouton
+    « Générer les trajets depuis les arrêts » (mission_form.js)."""
+    city = (stop.get("city") or "").strip()
+    address = (stop.get("address") or "").strip()
+    if city and address:
+        return f"{city}, {address}"
+    return city or address
+
+
+def _place_key(text):
+    """Comparaison d'un lieu sans tenir compte de la casse ni des espaces."""
+    return " ".join((text or "").split()).casefold()
+
+
+def retime_legs_from_stops(legs, stops):
+    """Recale les heures des trajets sur celles des arrêts, exactement comme
+    le bouton « Générer les trajets depuis les arrêts » du formulaire.
+
+    Un trajet « A → B » prend l'heure de l'arrêt A en début et celle de
+    l'arrêt B en fin. Le dépôt n'étant pas un arrêt, les heures qui le
+    concernent restent vides : c'est le chauffeur qui renseigne sa prise et
+    sa fin de service. Les lignes sans flèche (prise/fin de service, pause,
+    relais) sont vidées — elles se rapportaient à l'ancien horaire.
+
+    Sert au trajet retour : ses trajets sont ceux de l'aller dans l'ordre
+    inverse, leurs heures d'origine n'ont donc plus aucun sens. Modifie
+    `legs` sur place."""
+    arrets = [(stop_place_label(s), normalize_time(s.get("stop_time") or "")) for s in stops or []]
+    suivant = 0       # prochain arrêt attendu, dans l'ordre des trajets
+    precedent = ""    # heure de l'arrêt d'où part le trajet courant
+    for leg in legs or []:
+        label = leg.get("label") or ""
+        if LEG_ARROW not in label:
+            leg["start_time"] = ""
+            leg["end_time"] = ""
+            continue
+        _, _, destination = label.partition(LEG_ARROW)
+        arrivee = ""
+        if suivant < len(arrets) and _place_key(arrets[suivant][0]) == _place_key(destination):
+            arrivee = arrets[suivant][1]
+            suivant += 1
+        leg["start_time"] = precedent
+        leg["end_time"] = arrivee
+        precedent = arrivee
 
 
 def balance_passenger_counts(stops):

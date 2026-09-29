@@ -7,6 +7,11 @@
   {% include "_favicons.html" %}
   {% include "_theme.html" %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {# Champs d'heure (`data-time`) : saisie libre + sélecteur heures/minutes. Chargé
+     ici, avant le corps de page, pour que window.KentTime soit là quel que
+     soit l'écran — le script n'agit que par écouteurs posés sur le document,
+     et sert donc aussi les lignes clonées au fil de la saisie. #}
+  <script src="{{ url_for('static', filename='js/time_field.js') }}"></script>
 </head>
 <body{% if embed %} class="is-embed"{% endif %}>
   {# embed : page affichée dans le panneau flottant d'une mission liée

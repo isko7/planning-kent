@@ -14,7 +14,8 @@ from app.pdf_service import (
 )
 from app.email_service import (send_mission_email, send_bulk_email,
                                send_followup_email, EmailError)
-from app.routing import estimate_route, format_duration, add_minutes, build_driver_itinerary_url, RoutingError
+from app.routing import (estimate_route, format_duration, add_minutes,
+                         build_driver_itinerary_url, build_driver_waze_urls, RoutingError)
 from app.routes.settings import get_address_search_provider
 from app.utils import (
     DEFAULT_PARTNER_EMAIL_BODY, DEFAULT_PARTNER_EMAIL_SUBJECT,
@@ -707,6 +708,33 @@ def email_mission(mission_id):
     )
 
 
+def _itinerary_lines(mission):
+    """Les lignes « itinéraire » d'un email au chauffeur : le lien Google
+    Maps du trajet complet, puis les arrêts numérotés en liens Waze. Mises
+    en forme par email_service._body_to_html — bouton pour le premier,
+    pastilles cliquables pour les seconds.
+
+    Partagées par l'email d'ordre de mission et le bouton « Envoyer
+    l'itinéraire », pour que le chauffeur retrouve la même présentation.
+    Liste vide si la mission n'a pas deux lieux de conduite exploitables."""
+    legs = mission.get("legs") or []
+    maps_url = build_driver_itinerary_url(legs)
+    if not maps_url:
+        return []
+    lignes = [f"Itinéraire : {maps_url}", ""]
+    waze = build_driver_waze_urls(legs)
+    if waze:
+        # Arrêts numérotés : l'ordre de passage se lit d'un coup d'oeil, et
+        # le numéro fait partie du libellé du lien. Pas de ligne vide entre
+        # eux : l'espacement vient des marges du HTML, ce qui le rend
+        # régulier d'un client de messagerie à l'autre.
+        lignes.append("Waze, arrêt par arrêt :")
+        lignes += [f"{rang}. {place} : {url}"
+                   for rang, (place, url) in enumerate(waze, start=1)]
+        lignes.append("")
+    return lignes
+
+
 def _driver_email_defaults(mission):
     """Objet / corps de l'email envoyé au chauffeur d'une mission. Partagé
     entre l'envoi unitaire (page de rédaction) et l'envoi groupé « chaque
@@ -718,17 +746,18 @@ def _driver_email_defaults(mission):
     name = mission.get("mission_name") or mission["reference"]
     detail = f" : {fmt_time(start)} - {fmt_time(end)} ({name})" if start and end else f" ({name})"
     subject = f"Ordre de mission du {label}{detail}"
-    body = (
-        f"Bonjour {mission['driver']['first_name']},\n\n"
+    lignes = [
+        f"Bonjour {mission['driver']['first_name']},", "",
         f"Veuillez trouver ci-joint votre ordre de mission et le billet collectif "
-        f"pour le {label}{detail}.\n\n"
-    )
+        f"pour le {label}{detail}.", "",
+    ]
+    # La case « Envoyer l'itinéraire » de la fiche du chauffeur décide de la
+    # présence de ce bloc dans l'email d'ordre de mission ; le bouton
+    # « Envoyer l'itinéraire » de la fiche mission, lui, ne s'en soucie pas.
     if mission["driver"].get("send_itinerary"):
-        itinerary_url = build_driver_itinerary_url(mission.get("legs") or [])
-        if itinerary_url:
-            body += f"Itinéraire : {itinerary_url}\n\n"
-    body += f"Cordialement,\n{COMPANY['name']}"
-    return subject, body
+        lignes += _itinerary_lines(mission)
+    lignes += ["Cordialement,", COMPANY["name"]]
+    return subject, chr(10).join(lignes)
 
 
 def _partner_of(mission, cache):
@@ -943,8 +972,8 @@ def send_itinerary(mission_id):
         flash(f"{driver['last_name']} {driver['first_name']} n'a pas d'email sur sa fiche.", "error")
         return retour
 
-    itinerary_url = build_driver_itinerary_url(mission.get("legs") or [])
-    if not itinerary_url:
+    itineraire = _itinerary_lines(mission)
+    if not itineraire:
         flash("Pas d'itinéraire exploitable : il faut au moins deux lieux de conduite "
               "dans les trajets de la mission.", "error")
         return retour
@@ -954,12 +983,11 @@ def send_itinerary(mission_id):
     previous = repo.last_email_to(mission_id, to)
     base_subject = (previous or {}).get("subject") or _driver_email_defaults(mission)[0]
     label = fmt_date_full(mission["mission_date"])
-    body = (
-        f"Bonjour {driver['first_name']},\n\n"
-        f"Voici l'itinéraire de votre mission du {label}.\n\n"
-        f"Itinéraire : {itinerary_url}\n\n"
-        f"Cordialement,\n{COMPANY['name']}"
-    )
+    lignes = [
+        f"Bonjour {driver['first_name']},", "",
+        f"Voici l'itinéraire de votre mission du {label}.", "",
+    ] + itineraire + ["Cordialement,", COMPANY["name"]]
+    body = chr(10).join(lignes)
     try:
         send_followup_email(
             mission_id, [to], _reply_subject(base_subject), body,

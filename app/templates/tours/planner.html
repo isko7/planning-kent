@@ -3,10 +3,9 @@
 {% block content %}
   <div class="page-head">
     <div>
-      <h1>Plan de Ramassage — itinéraire le plus court</h1>
-      <div class="sub">Saisissez les adresses du ramassage, dans n'importe quel ordre : le calcul les
-        remet dans celui qui raccourcit le trajet, premier et dernier arrêt compris.
-        L'ordre reste modifiable à la main ensuite.</div>
+      <h1>Plan de Ramassage</h1>
+      <div class="sub">Deux outils indépendants : répartir des voyageurs entre plusieurs
+        navettes, ou remettre une liste d'adresses dans l'ordre le plus court.</div>
     </div>
   </div>
 
@@ -19,171 +18,184 @@
        data-has-tomtom="{{ '1' if tomtom_enabled else '' }}"
        data-max-stops="{{ max_stops }}">
 
-    <div class="card">
-      <h2>Adresses</h2>
-      <ol class="tour-list" id="tour-list"></ol>
-      <template id="tour-stop-template">
-        <li class="tour-stop">
-          {# La poignée seule déclenche le glisser-déposer : ailleurs, le
-             pointeur doit rester libre de sélectionner du texte. #}
-          <button type="button" class="tour-stop__grip" aria-label="Glisser pour déplacer cet arrêt"
-                  title="Glisser pour déplacer">⠿</button>
-          <span class="tour-stop__rank" aria-hidden="true"></span>
-          {# Heure de passage : celle qu'on saisit fait référence, les autres
-             se déduisent des durées de trajet au moment du calcul. Champ
-             texte et non input[type=time] : ce dernier s'affiche en AM/PM
-             quand le système n'est pas en français. « 6 », « 630 », « 6:30 »
-             ou « 6h30 » deviennent tous « 06h30 » à la sortie du champ. #}
-          <input type="text" class="tour-stop__time" inputmode="numeric" maxlength="5"
-                 placeholder="06h30" autocomplete="off" aria-label="Heure de passage">
-          <div class="tour-stop__field">
-            {# La boîte de suggestions se pose sous ce conteneur (.addr-suggestions
-               est en position absolue) : elle doit donc entourer le champ seul. #}
-            <div class="tour-stop__input">
-              <input type="text" class="tour-stop__address" autocomplete="off" spellcheck="false"
-                     placeholder="Adresse, ville — ex. 12 rue du Grand Faubourg, Chartres"
-                     aria-label="Adresse de l'arrêt">
-            </div>
-            <div class="tour-stop__meta">
-              <span class="tour-stop__role"></span>
-              <span class="tour-stop__leg"></span>
-            </div>
-          </div>
-          <div class="tour-stop__actions">
-            <button type="button" class="row-move row-up" title="Monter">&#9650;</button>
-            <button type="button" class="row-move row-down" title="Descendre">&#9660;</button>
-            <button type="button" class="row-remove" title="Supprimer">&times;</button>
-          </div>
-        </li>
-      </template>
 
-      <div class="btn-row" style="margin-top:4px;">
-        <button type="button" class="btn btn--secondary btn--sm" id="tour-add">+ Ajouter une adresse</button>
-        <button type="button" class="btn btn--ghost btn--sm" id="tour-add-depot">+ Dépôt KENT</button>
-      </div>
-      <div class="hint" style="margin-top:8px;">Choisissez de préférence l'adresse dans les
-        suggestions : une adresse tapée à la main, sans son code postal, peut être comprise
-        ailleurs en France. Entrée passe à l'arrêt suivant.</div>
-
-      {# Le calcul et les actions qu'il ouvre dans la même rangée : « Ouvrir
-         dans Google Maps » et « Copier la liste » n'apparaissent qu'une fois
-         l'itinéraire calculé. #}
-      <div class="btn-row tour-actions">
-        {# Qui calcule les itinéraires, ici comme dans la section Navettes.
-           Google le fait dans le navigateur, TomTom côté serveur (sa clé n'a
-           rien à faire ici). Un même réglage, un sélecteur par section pour
-           ne pas avoir à remonter la page ; le choix est gardé par
-           l'appareil (tours.js:initRouteProvider). #}
-        <label class="route-provider">
-          <span>Itinéraires</span>
-          <select data-route-provider>
-            <option value="google">Google Maps</option>
-            <option value="tomtom"{{ ' disabled' if not tomtom_enabled }}>TomTom{{ '' if tomtom_enabled else ' (clé absente)' }}</option>
-          </select>
-        </label>
-        <button type="button" class="btn btn--secondary" id="tour-trace"
-                title="Trace l'itinéraire dans l'ordre affiché, sans y toucher">Calculer l'itinéraire</button>
-        <button type="button" class="btn btn--primary" id="tour-optimize"
-                title="Réordonne les arrêts pour que le trajet soit le plus court possible">⚡ Calculer l'itinéraire le plus court</button>
-        <a class="btn btn--blue" id="tour-maps-link" href="#" target="_blank" rel="noopener" hidden>
-          Ouvrir dans Google Maps</a>
-        <button type="button" class="btn btn--secondary" id="tour-copy" hidden>Copier la liste</button>
-        <button type="button" class="btn btn--ghost" id="tour-clear">Vider la liste</button>
-        <span class="hint" id="tour-copy-status"></span>
-      </div>
-
-      <div class="tour-status" id="tour-status" hidden></div>
-      <div class="legs-summary" id="tour-summary" hidden></div>
-      <div class="hint" style="margin-top:12px;">Glissez un arrêt par sa poignée ⠿ (ou les flèches ▲▼)
-        pour changer l'ordre : la carte et les distances suivent, sans relancer le calcul.
-        La liste est conservée sur cet appareil jusqu'à ce que vous la vidiez.<br>
-        <strong>Heures</strong> : saisissez-en une seule — celle du départ, de l'arrivée ou de
-        n'importe quel arrêt — et le calcul remplit les autres d'après les durées de trajet.
-        La dernière heure saisie à la main fait référence.</div>
-    </div>
-
-    <div class="card">
-      <h2>Carte</h2>
-      <div class="tour-map" id="tour-map"></div>
-      <div class="hint" id="tour-map-note" style="margin-top:10px;"></div>
-    </div>
-
-    {# ----------------------------------------------------------- navettes #}
+    {# ------------------------------------------------------------ navettes #}
     {# Section autonome : ses propres adresses, sa propre destination, ses
-       propres réglages. Elle ne partage rien avec l'itinéraire du haut. #}
-    <div class="card" id="shuttle-card"
-         data-url="{{ url_for('tours.plan_shuttles_view') }}">
-      <h2>Navettes — répartition automatique</h2>
-      <p class="hint">Des points de ramassage avec leur nombre de voyageurs et une destination
-        commune. Dans l'ordre : <strong>remplir les navettes au maximum</strong>, donc en avoir
-        <strong>le moins possible</strong>, et seulement ensuite raccourcir les trajets — chacune
-        suivant alors l'ordre de passage le plus court jusqu'à la destination. Sans rapport avec
-        l'itinéraire ci-dessus.</p>
-
-      <ol class="shuttle-list" id="shuttle-list"></ol>
-      <template id="shuttle-stop-template">
-        <li class="shuttle-stop">
-          <span class="shuttle-stop__rank" aria-hidden="true"></span>
-          <div class="shuttle-stop__field">
-            <div class="tour-stop__input">
-              <input type="text" class="shuttle-stop__address" autocomplete="off" spellcheck="false"
-                     placeholder="Adresse de ramassage" aria-label="Adresse de ramassage">
+       propres réglages. Elle ne partage rien avec l'itinéraire plus bas. #}
+    <section class="planner-section">
+      <div class="planner-section__head">
+        <h2>Navettes — répartition automatique</h2>
+        <p class="hint">Des points de ramassage avec leur nombre de voyageurs et une destination
+          commune. Dans l'ordre : <strong>remplir les navettes au maximum</strong>, donc en avoir
+          <strong>le moins possible</strong>, et seulement ensuite raccourcir les trajets — chacune
+          suivant alors l'ordre de passage le plus court jusqu'à la destination.</p>
+      </div>
+      <div class="card" id="shuttle-card"
+           data-url="{{ url_for('tours.plan_shuttles_view') }}">
+        <ol class="shuttle-list" id="shuttle-list"></ol>
+        <template id="shuttle-stop-template">
+          <li class="shuttle-stop">
+            <span class="shuttle-stop__rank" aria-hidden="true"></span>
+            <div class="shuttle-stop__field">
+              <div class="tour-stop__input">
+                <input type="text" class="shuttle-stop__address" autocomplete="off" spellcheck="false"
+                       placeholder="Adresse de ramassage" aria-label="Adresse de ramassage">
+              </div>
+            </div>
+            <input type="number" class="shuttle-stop__pax" min="1" max="99" step="1" value="1"
+                   aria-label="Nombre de voyageurs" title="Nombre de voyageurs à cet arrêt">
+            <button type="button" class="row-remove" title="Supprimer cet arrêt">&times;</button>
+          </li>
+        </template>
+        <div class="btn-row" style="margin-top:4px;">
+          <button type="button" class="btn btn--secondary btn--sm" id="shuttle-add">+ Ajouter une adresse</button>
+        </div>
+        <div class="form-grid shuttle-params">
+          <div class="field" data-address-provider="{{ address_search_provider }}">
+            <label>Destination finale</label>
+            <div class="addr-field">
+              <input type="text" id="shuttle-destination" autocomplete="off" spellcheck="false"
+                     placeholder="Aéroport Paris-Charles de Gaulle, Terminal 2E">
             </div>
           </div>
-          <input type="number" class="shuttle-stop__pax" min="1" max="99" step="1" value="1"
-                 aria-label="Nombre de voyageurs" title="Nombre de voyageurs à cet arrêt">
-          <button type="button" class="row-remove" title="Supprimer cet arrêt">&times;</button>
-        </li>
-      </template>
-      <div class="btn-row" style="margin-top:4px;">
-        <button type="button" class="btn btn--secondary btn--sm" id="shuttle-add">+ Ajouter une adresse</button>
-      </div>
-
-      <div class="form-grid shuttle-params">
-        <div class="field" data-address-provider="{{ address_search_provider }}">
-          <label>Destination finale</label>
-          <div class="addr-field">
-            <input type="text" id="shuttle-destination" autocomplete="off" spellcheck="false"
-                   placeholder="Aéroport Paris-Charles de Gaulle, Terminal 2E">
+          <div class="field">
+            <label>Heure d'arrivée</label>
+            <input type="text" id="shuttle-arrival" inputmode="numeric" maxlength="5"
+                   data-time data-time-format="h"
+                   placeholder="10h30" autocomplete="off">
+            <div class="hint">Toutes les navettes y arrivent à cette heure ; les heures de
+              ramassage en découlent.</div>
           </div>
         </div>
-        <div class="field">
-          <label>Heure d'arrivée</label>
-          <input type="text" id="shuttle-arrival" inputmode="numeric" maxlength="5"
-                 placeholder="10h30" autocomplete="off">
-          <div class="hint">Toutes les navettes y arrivent à cette heure ; les heures de
-            ramassage en découlent.</div>
+        <div class="form-grid shuttle-params">
+          <div class="field">
+            <label>Nombre de navettes</label>
+            <input type="number" id="shuttle-count" min="1" max="30" step="1" placeholder="au plus">
+            <div class="hint">Vide : autant qu'il en faut, pas une de plus.</div>
+          </div>
+          <div class="field">
+            <label>Sièges max / navette</label>
+            <input type="number" id="shuttle-seats" min="1" max="99" step="1" value="8">
+          </div>
         </div>
+        <div class="btn-row tour-actions">
+          <label class="route-provider">
+            <span>Itinéraires</span>
+            <select data-route-provider>
+              <option value="google">Google Maps</option>
+              <option value="tomtom"{{ ' disabled' if not tomtom_enabled }}>TomTom{{ '' if tomtom_enabled else ' (clé absente)' }}</option>
+            </select>
+          </label>
+          <button type="button" class="btn btn--primary" id="shuttle-run">⚡ Calculer les navettes</button>
+          <button type="button" class="btn btn--ghost" id="shuttle-clear">Vider la liste</button>
+        </div>
+        <div class="tour-status" id="shuttle-status" hidden></div>
+        <div id="shuttle-results"></div>
+        <div class="tour-map" id="shuttle-map" hidden></div>
+        <div class="hint" id="shuttle-map-note" style="margin-top:10px;"></div>
+      </div>
+    </section>
+
+    {# --------------------------------------------------- itinéraire simple #}
+    <section class="planner-section">
+      <div class="planner-section__head">
+        <h2>Itinéraire le plus court</h2>
+        <p class="hint">Saisissez les adresses du ramassage, dans n'importe quel ordre : le calcul
+          les remet dans celui qui raccourcit le trajet, premier et dernier arrêt compris. L'ordre
+          reste modifiable à la main ensuite.</p>
+      </div>
+      <div class="card">
+        <h3>Adresses</h3>
+        <ol class="tour-list" id="tour-list"></ol>
+        <template id="tour-stop-template">
+          <li class="tour-stop">
+            {# La poignée seule déclenche le glisser-déposer : ailleurs, le
+               pointeur doit rester libre de sélectionner du texte. #}
+            <button type="button" class="tour-stop__grip" aria-label="Glisser pour déplacer cet arrêt"
+                    title="Glisser pour déplacer">⠿</button>
+            <span class="tour-stop__rank" aria-hidden="true"></span>
+            {# Heure de passage : celle qu'on saisit fait référence, les autres
+               se déduisent des durées de trajet au moment du calcul. Champ
+               texte et non input[type=time] : ce dernier s'affiche en AM/PM
+               quand le système n'est pas en français. « 6 », « 630 », « 6:30 »
+               ou « 6h30 » deviennent tous « 06h30 » à la sortie du champ, et
+               `data-time` y ajoute le sélecteur heures / minutes
+               (static/js/time_field.js). #}
+            <input type="text" class="tour-stop__time" inputmode="numeric" maxlength="5"
+                   data-time data-time-format="h"
+                   placeholder="06h30" autocomplete="off" aria-label="Heure de passage">
+            <div class="tour-stop__field">
+              {# La boîte de suggestions se pose sous ce conteneur (.addr-suggestions
+                 est en position absolue) : elle doit donc entourer le champ seul. #}
+              <div class="tour-stop__input">
+                <input type="text" class="tour-stop__address" autocomplete="off" spellcheck="false"
+                       placeholder="Adresse, ville — ex. 12 rue du Grand Faubourg, Chartres"
+                       aria-label="Adresse de l'arrêt">
+              </div>
+              <div class="tour-stop__meta">
+                <span class="tour-stop__role"></span>
+                <span class="tour-stop__leg"></span>
+              </div>
+            </div>
+            <div class="tour-stop__actions">
+              <button type="button" class="row-move row-up" title="Monter">&#9650;</button>
+              <button type="button" class="row-move row-down" title="Descendre">&#9660;</button>
+              <button type="button" class="row-remove" title="Supprimer">&times;</button>
+            </div>
+          </li>
+        </template>
+
+        <div class="btn-row" style="margin-top:4px;">
+          <button type="button" class="btn btn--secondary btn--sm" id="tour-add">+ Ajouter une adresse</button>
+          <button type="button" class="btn btn--ghost btn--sm" id="tour-add-depot">+ Dépôt KENT</button>
+        </div>
+        <div class="hint" style="margin-top:8px;">Choisissez de préférence l'adresse dans les
+          suggestions : une adresse tapée à la main, sans son code postal, peut être comprise
+          ailleurs en France. Entrée passe à l'arrêt suivant.</div>
+
+        {# Le calcul et les actions qu'il ouvre dans la même rangée : « Ouvrir
+           dans Google Maps » et « Copier la liste » n'apparaissent qu'une fois
+           l'itinéraire calculé. #}
+        <div class="btn-row tour-actions">
+          {# Qui calcule les itinéraires, ici comme dans la section Navettes.
+             Google le fait dans le navigateur, TomTom côté serveur (sa clé n'a
+             rien à faire ici). Un même réglage, un sélecteur par section pour
+             ne pas avoir à remonter la page ; le choix est gardé par
+             l'appareil (tours.js:initRouteProvider). #}
+          <label class="route-provider">
+            <span>Itinéraires</span>
+            <select data-route-provider>
+              <option value="google">Google Maps</option>
+              <option value="tomtom"{{ ' disabled' if not tomtom_enabled }}>TomTom{{ '' if tomtom_enabled else ' (clé absente)' }}</option>
+            </select>
+          </label>
+          <button type="button" class="btn btn--secondary" id="tour-trace"
+                  title="Trace l'itinéraire dans l'ordre affiché, sans y toucher">Calculer l'itinéraire</button>
+          <button type="button" class="btn btn--primary" id="tour-optimize"
+                  title="Réordonne les arrêts pour que le trajet soit le plus court possible">⚡ Calculer l'itinéraire le plus court</button>
+          <a class="btn btn--blue" id="tour-maps-link" href="#" target="_blank" rel="noopener" hidden>
+            Ouvrir dans Google Maps</a>
+          <button type="button" class="btn btn--secondary" id="tour-copy" hidden>Copier la liste</button>
+          <button type="button" class="btn btn--ghost" id="tour-clear">Vider la liste</button>
+          <span class="hint" id="tour-copy-status"></span>
+        </div>
+
+        <div class="tour-status" id="tour-status" hidden></div>
+        <div class="legs-summary" id="tour-summary" hidden></div>
+        <div class="hint" style="margin-top:12px;">Glissez un arrêt par sa poignée ⠿ (ou les flèches ▲▼)
+          pour changer l'ordre : la carte et les distances suivent, sans relancer le calcul.
+          La liste est conservée sur cet appareil jusqu'à ce que vous la vidiez.<br>
+          <strong>Heures</strong> : saisissez-en une seule — celle du départ, de l'arrivée ou de
+          n'importe quel arrêt — et le calcul remplit les autres d'après les durées de trajet.
+          La dernière heure saisie à la main fait référence.</div>
       </div>
 
-      <div class="form-grid shuttle-params">
-        <div class="field">
-          <label>Nombre de navettes</label>
-          <input type="number" id="shuttle-count" min="1" max="30" step="1" placeholder="au plus">
-          <div class="hint">Vide : autant qu'il en faut, pas une de plus.</div>
-        </div>
-        <div class="field">
-          <label>Sièges max / navette</label>
-          <input type="number" id="shuttle-seats" min="1" max="99" step="1" value="8">
-        </div>
+      <div class="card">
+        <h3>Carte</h3>
+        <div class="tour-map" id="tour-map"></div>
+        <div class="hint" id="tour-map-note" style="margin-top:10px;"></div>
       </div>
-
-      <div class="btn-row tour-actions">
-        <label class="route-provider">
-          <span>Itinéraires</span>
-          <select data-route-provider>
-            <option value="google">Google Maps</option>
-            <option value="tomtom"{{ ' disabled' if not tomtom_enabled }}>TomTom{{ '' if tomtom_enabled else ' (clé absente)' }}</option>
-          </select>
-        </label>
-        <button type="button" class="btn btn--primary" id="shuttle-run">⚡ Calculer les navettes</button>
-        <button type="button" class="btn btn--ghost" id="shuttle-clear">Vider la liste</button>
-      </div>
-      <div class="tour-status" id="shuttle-status" hidden></div>
-      <div id="shuttle-results"></div>
-      <div class="tour-map" id="shuttle-map" hidden></div>
-      <div class="hint" id="shuttle-map-note" style="margin-top:10px;"></div>
-    </div>
+    </section>
   </div>
 
   {% if google_maps_api_key %}

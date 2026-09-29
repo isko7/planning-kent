@@ -318,6 +318,55 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--red); outli
 .form-grid--3 { grid-template-columns: repeat(3, 1fr); }
 @media (max-width: 720px) { .form-grid, .form-grid--3 { grid-template-columns: 1fr; } }
 
+/* -------------------------------------------------------- champs d'heure */
+/* Champ texte libre (« 630 », « 6:30 », « 6h30 »…) doublé d'un sélecteur
+   heures / minutes — voir static/js/time_field.js. La petite horloge signale
+   qu'il y a un sélecteur ; dessinée dans le gris neutre des deux thèmes
+   (--muted), une image de fond ne suivant pas les variables. */
+input[type=text][data-time] {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2382838c' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5V12l3 1.8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 15px 15px;
+  font-variant-numeric: tabular-nums;
+}
+/* Deux colonnes, les heures et les minutes, posées en `fixed` par le script
+   au-dessus de tout le reste (le plus haut ailleurs : 40, le bloc-notes) —
+   et dans la <dialog> quand le champ y est, sans quoi elles passeraient sous
+   son voile. */
+.time-panel {
+  position: fixed; z-index: 50; display: flex; gap: 5px;
+  padding: 7px; background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .18);
+}
+.time-col { display: flex; flex-direction: column; }
+.time-col + .time-col { border-left: 1px solid var(--line); padding-left: 5px; }
+.time-col__head {
+  padding: 1px 0 6px; text-align: center; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .4px; color: var(--muted); font-weight: 700;
+}
+/* Colonnes de même largeur : celle des heures a un ascenseur (24 cases),
+   celle des minutes tient en entier (12 cases, de 5 en 5) — d'où le
+   `scrollbar-gutter`, qui réserve la place de l'ascenseur des deux côtés
+   pour que les cases restent de la même largeur. */
+.time-col__list {
+  width: 70px; max-height: 210px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-gutter: stable;
+}
+.time-cell {
+  display: block; width: 100%; padding: 6px 0; margin-bottom: 1px;
+  border: 0; border-radius: 4px; background: none; color: var(--ink);
+  cursor: pointer; text-align: center;
+  font: 700 13.5px var(--font); font-variant-numeric: tabular-nums;
+}
+.time-cell:hover { background: var(--hover); }
+/* La moitié d'heure qui est dans le champ. La colonne des minutes n'allume
+   rien quand la saisie tombe entre deux cases (13h07) : elle est valable,
+   elle n'est simplement pas proposée. */
+.time-cell.is-on { background: var(--red); color: #fff; }
+
 /* ------------------------------------------------------- editable rows */
 table.edit-rows { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
 table.edit-rows th {
@@ -747,6 +796,10 @@ body.planning-view-grid .planning-grid { display: block; }
   input[type=text], input[type=email], input[type=tel], input[type=date], input[type=number],
   input[type=password], select, textarea { font-size: 16px; }
 
+  /* Sélecteur d'heure : des cases assez grandes pour le doigt. */
+  .time-col__list { width: 72px; max-height: 232px; }
+  .time-cell { padding: 9px 0; font-size: 15px; }
+
   .filter-bar .field { flex: 1 1 100%; min-width: 0 !important; }
   .filter-bar .field:has(input[type=date]) { flex-basis: calc(50% - 7px); }
 
@@ -1091,6 +1144,22 @@ input.linked-dialog__filter { width: auto; margin: 0 20px 12px; }
 .is-embed .container { padding: 16px 16px 24px; }
 
 /* --------------------------------------------------- plan de ramassage */
+/* L'écran réunit deux outils sans rapport l'un avec l'autre : chacun forme
+   une section titrée, nettement détachée de l'autre — sans cet écart on
+   croit lire un seul long formulaire. */
+/* Le trait double l'écart : la coupure se voit même quand la section
+   précédente se termine par une carte de la même couleur que le fond. */
+.planner-section + .planner-section {
+  margin-top: 46px; padding-top: 34px; border-top: 1px solid var(--line);
+}
+.planner-section__head { margin-bottom: 14px; }
+.planner-section__head h2 { margin: 0 0 6px; }
+.planner-section__head .hint { margin: 0; max-width: 78ch; }
+
+@media (max-width: 720px) {
+  .planner-section + .planner-section { margin-top: 32px; padding-top: 24px; }
+}
+
 /* Écran Plan de Ramassage : la liste d'adresses réordonnable et la carte. Une liste
    plutôt qu'un tableau — le glisser-déposer d'une ligne entière y est
    naturel, et il n'y a qu'une colonne de saisie. */
@@ -1119,10 +1188,11 @@ input.linked-dialog__filter { width: auto; margin: 0 20px 12px; }
 }
 /* Heure de passage : même allure que les autres champs, largeur fixe.
    Sélecteur `input.` pour peser autant que la règle générale des champs de
-   saisie, écrite plus haut. */
+   saisie, écrite plus haut. L'heure est centrée : la place prise à droite
+   par l'horloge du sélecteur est rendue à gauche. */
 input.tour-stop__time {
-  flex: none; width: 96px; margin-top: 2px; text-align: center;
-  font-variant-numeric: tabular-nums;
+  flex: none; width: 112px; margin-top: 2px; text-align: center;
+  padding-left: 28px; font-variant-numeric: tabular-nums;
 }
 .tour-stop__field { flex: 1; min-width: 0; }
 /* La boîte de suggestions (.addr-suggestions) se positionne sur ce
@@ -1179,7 +1249,7 @@ input.tour-stop__time {
   .tour-stop__grip { font-size: 18px; padding: 10px 8px; margin: 0; }
   .tour-stop__rank { margin: 6px 0 0; }
   /* 16 px minimum, comme les autres champs : sinon iOS zoome à la saisie. */
-  input.tour-stop__time { width: 104px; margin: 0; }
+  input.tour-stop__time { width: 120px; margin: 0; }
   .tour-stop__actions { margin: 0 0 0 auto; }
   /* Les boutons d'action prennent toute la largeur, comme ailleurs sur
      téléphone : côte à côte, ils seraient trop étroits pour leur libellé. */

@@ -332,6 +332,33 @@ def build_driver_itinerary_url(legs):
     return "https://www.google.com/maps/dir/?" + urllib.parse.urlencode(params, safe="|")
 
 
+# Waze ne sait pas enchaîner plusieurs arrêts dans une URL : son lien
+# profond ne porte qu'une destination (pas d'équivalent de `waypoints`).
+# On donne donc un lien par arrêt de conduite, à ouvrir au fur et à mesure,
+# plutôt qu'un seul lien qui ne couvrirait qu'une partie du trajet.
+WAZE_MAX_STOPS = 10
+
+
+def build_driver_waze_urls(legs):
+    """[(libellé du lieu, lien Waze)] pour chaque arrêt de conduite après le
+    point de départ — celui-ci est la position du chauffeur, il n'y a pas à
+    y naviguer. Liste vide si la mission n'a pas d'arrêt exploitable.
+
+    `navigate=yes` lance la navigation directement vers le premier résultat
+    de la recherche, sans écran intermédiaire."""
+    places = _driving_places(legs)
+    if len(places) < 2:
+        return []
+    liens = []
+    for place in places[1:][:WAZE_MAX_STOPS]:
+        adresse = normalize_place(place)
+        if not adresse:
+            continue
+        liens.append((place, "https://www.waze.com/ul?" + urllib.parse.urlencode(
+            {"q": adresse, "navigate": "yes"})))
+    return liens
+
+
 # ------------------------------------------- tournée : ordre le plus court
 # Écran Plan de Ramassage : remettre une liste d'adresses dans l'ordre qui raccourcit
 # le trajet. Rien n'est imposé — ni le premier arrêt, ni le dernier : le seul

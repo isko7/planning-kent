@@ -39,12 +39,27 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   façon un `price` vide. Le même bouton figure dans le formulaire de
   création / modification, à côté du champ Prix, et le réglage s'y
   enregistre avec la mission. La duplication d'un OM le conserve.
+- **Créer le retour** : les arrêts sont repris dans l'ordre inverse et
+  replanifiés à partir de la date et de l'heure données, et les heures des
+  trajets sont **recalculées depuis ces arrêts** — comme le ferait le
+  bouton « Générer les trajets depuis les arrêts ». Un décalage uniforme
+  ne marcherait pas : les trajets du retour sont ceux de l'aller pris à
+  l'envers, leurs heures d'origine n'ont plus de sens dans ce sens-là.
 - **Envoyer l'itinéraire** : sur la fiche d'un OM déjà envoyé à son
   chauffeur, un bouton envoie le lien Google Maps de la mission **en
   réponse à cet email-là** (même objet précédé de « Re: »), pour que le
   chauffeur retrouve les deux au même endroit dans sa boîte. Le bouton ne
   dépend pas de la case « Envoyer l'itinéraire » de la fiche du chauffeur,
   qui ne règle que la ligne ajoutée d'office à l'ordre de mission.
+  L'email porte le trajet complet dans un bouton « Itinéraire complet —
+  Google Maps », puis les arrêts **numérotés, chacun étant une pastille
+  cliquable qui ouvre Waze** : Waze ne sait pas enchaîner plusieurs
+  destinations dans une URL, un lien unique ne couvrirait qu'une partie du
+  trajet. **L'email d'ordre de mission porte le même bloc** quand la case
+  « Envoyer l'itinéraire » est cochée sur la fiche du chauffeur. La mise
+  en forme HTML des emails repose sur des blocs à marges fixes
+  (`email_service._body_to_html`) et non sur des `<br>` empilés, qui
+  donnaient des écarts irréguliers d'un client de messagerie à l'autre.
 - **Trois onglets sur la liste des OM** : *À venir*, *Missions passées* et
   *Missions archivées*. Les envois par email ne sont proposés que sur les
   missions à venir ; l'onglet des missions passées offre à la place un
@@ -139,7 +154,8 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   **Heures de passage** : on en saisit une seule — départ, arrivée, ou
   n'importe quel arrêt — et chaque calcul remplit les autres à partir des
   durées de trajet, en avant comme en arrière ; la dernière heure saisie à
-  la main fait référence. Saisie libre, affichage sur 24 heures à la mode de
+  la main fait référence. Saisie libre ou choix dans le sélecteur, comme
+  partout ailleurs (voir **Saisie des heures**), affichage à la mode de
   l'application : « 6 », « 630 », « 6:30 » ou « 6h30 » donnent tous « 06h30 ».
   **Navettes** (section du bas, indépendante de l'itinéraire ci-dessus) : des
   points de ramassage avec leur nombre de voyageurs, une destination commune
@@ -154,6 +170,16 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   sections de l'écran : **Google Maps** (dans le navigateur) ou **TomTom**
   (côté serveur, trafic du moment — sa clé ne sort pas du serveur). Le choix
   est gardé par l'appareil, et grisé s'il manque la clé correspondante.
+- **Saisie des heures** : tous les champs d'heure de l'application (arrêts et
+  trajets d'un OM, étapes et navettes du Plan de Ramassage, fenêtre « Créer le
+  retour ») marchent de la même façon. On tape l'heure comme on veut — « 6 »,
+  « 630 », « 6:30 », « 6h30 » — et elle est remise au propre en quittant le
+  champ ; un clic dedans ouvre en plus un **sélecteur en deux colonnes,
+  heures et minutes** (de 5 en 5), positionné sur l'heure déjà saisie : un
+  clic dans une colonne ne change que cette moitié-là, et se voit aussitôt
+  dans le champ. Les flèches ↑ / ↓ avancent ou reculent de 5 minutes. Ce sont
+  des champs texte et non des `input[type=time]`, qui s'affichent en AM/PM dès
+  que l'appareil n'est pas en français.
 - **Mode sombre** : bouton lune / soleil dans la barre du haut. Par défaut,
   l'application suit le réglage clair / sombre de l'appareil ; le choix fait
   avec le bouton est mémorisé par le navigateur (donc par appareil).
