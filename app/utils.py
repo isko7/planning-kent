@@ -28,6 +28,51 @@ Vous en souhaitant bonne réception.
 Cordialement,
 {societe}"""
 
+# ------------------------------------------------------------------ emails
+# Une fiche Personnel (comme un champ « Destinataires » d'envoi) peut porter
+# plusieurs adresses. Le separateur affiche est le point-virgule — celui
+# d'Outlook, donc celui que les utilisateurs copient-collent — mais on
+# accepte aussi la virgule et les retours a la ligne a la saisie : mieux
+# vaut comprendre ce qui est colle que rejeter la fiche.
+_EMAIL_SEPARATORS_RE = re.compile(r"[;,\s]+")
+# Volontairement permissif : il s'agit d'attraper les fautes de frappe
+# evidentes (adresse sans @, espace au milieu), pas de re-implementer la
+# RFC 5322 — c'est le serveur d'envoi qui tranche en dernier ressort.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_SEPARATOR = "; "
+
+
+def split_emails(raw):
+    """Les adresses d'un champ multi-destinataires, dans l'ordre de saisie
+    et sans doublon (comparaison insensible a la casse : une meme adresse
+    ecrite deux fois ferait partir deux copies du meme email)."""
+    adresses, vues = [], set()
+    for part in _EMAIL_SEPARATORS_RE.split(raw or ""):
+        part = part.strip()
+        if not part or part.lower() in vues:
+            continue
+        vues.add(part.lower())
+        adresses.append(part)
+    return adresses
+
+
+def join_emails(adresses):
+    """Forme stockee / affichee d'une liste d'adresses."""
+    return EMAIL_SEPARATOR.join(adresses)
+
+
+def normalize_emails(raw):
+    """Un champ multi-destinataires remis au propre : separateurs uniformes,
+    espaces et doublons retires. C'est sous cette forme qu'on l'enregistre,
+    pour que la fiche relue ressemble a ce qu'on en attend."""
+    return join_emails(split_emails(raw))
+
+
+def invalid_emails(raw):
+    """Les adresses du champ qui ne ressemblent pas a une adresse email."""
+    return [a for a in split_emails(raw) if not _EMAIL_RE.match(a)]
+
+
 WEEKDAYS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 MONTHS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
              "août", "septembre", "octobre", "novembre", "décembre"]

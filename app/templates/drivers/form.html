@@ -17,8 +17,16 @@
       </div>
       <div class="field">
         <label>Email *</label>
-        <input type="email" name="email" value="{{ driver.email or '' }}" required>
-        <div class="hint">Utilisé pour l'envoi automatique de l'Ordre de Mission.</div>
+        {# type="text" et non type="email" : le contrôle natif du navigateur
+           refuse tout ce qui n'est pas UNE adresse, et bloquerait la saisie
+           de plusieurs. La validation se fait côté serveur (drivers.py). #}
+        <input type="text" name="email" value="{{ driver.email or '' }}" required
+               autocapitalize="none" spellcheck="false"
+               placeholder="jean.dupont@exemple.fr ; agence@exemple.fr">
+        <div class="hint">
+          Utilisé pour l'envoi automatique de l'Ordre de Mission. Plusieurs adresses
+          possibles, séparées par un point-virgule : chacune recevra l'email.
+        </div>
       </div>
       <div class="field">
         <label>Téléphone</label>

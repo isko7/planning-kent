@@ -44,7 +44,7 @@
         <label>Destinataires *</label>
         <input type="text" name="to_{{ g.key }}" value="{{ g.to }}" required>
         <div class="hint">
-          Adresses séparées par des virgules.
+          Adresses séparées par un point-virgule.
           {% if g.partner and not g.partner.email %}
             <strong>{{ g.partner.name }} n'a pas d'email renseigné</strong> — complétez sa fiche dans
             <a href="{{ url_for('partners.edit_partner', partner_id=g.partner.id) }}">Partenaires</a>.
@@ -56,7 +56,7 @@
       </div>
       <div class="field">
         <label>Copie (Cc)</label>
-        <input type="text" name="cc_{{ g.key }}" value="{{ g.cc }}" placeholder="ex. exploitation@transports-kent.fr, ...">
+        <input type="text" name="cc_{{ g.key }}" value="{{ g.cc }}" placeholder="ex. exploitation@transports-kent.fr ; ...">
       </div>
       <div class="field">
         <label>Objet *</label>

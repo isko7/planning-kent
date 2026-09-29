@@ -21,7 +21,7 @@ from app.utils import (
     DEFAULT_PARTNER_EMAIL_BODY, DEFAULT_PARTNER_EMAIL_SUBJECT,
     balance_passenger_counts, day_label, fmt_date_full, fmt_date_long, fmt_date_short,
     fmt_hours_minutes, fmt_time, is_valid_time, legs_distance_summary, legs_time_summary,
-    normalize_time, now_paris, service_time_range, shuttle_number,
+    normalize_time, now_paris, service_time_range, shuttle_number, split_emails,
 )
 
 bp = Blueprint("missions", __name__, url_prefix="/missions")
@@ -682,9 +682,8 @@ def email_mission(mission_id):
     driver = mission["driver"]
 
     if request.method == "POST":
-        to_list = [e.strip() for e in request.form.get("to", "").split(",") if e.strip()]
-        cc_raw = request.form.get("cc", "")
-        cc_list = [e.strip() for e in cc_raw.split(",") if e.strip()]
+        to_list = split_emails(request.form.get("to", ""))
+        cc_list = split_emails(request.form.get("cc", ""))
         subject = request.form.get("subject", "").strip()
         body = request.form.get("body", "")
         if not to_list or not subject:
@@ -813,10 +812,6 @@ def _groups_from_form(missions, form):
     return groups
 
 
-def _addresses(raw):
-    return [e.strip() for e in (raw or "").split(",") if e.strip()]
-
-
 def _fill_partner_template(text, names, missions_block):
     """Remplace les marqueurs du modèle d'une agence. `str.replace` et non
     `str.format` : le modèle est saisi à la main, une accolade isolée ne
@@ -901,7 +896,7 @@ def bulk_email():
         return page(_bulk_groups(missions))
 
     groups = _groups_from_form(missions, request.form)
-    incomplets = [g for g in groups if not _addresses(g["to"]) or not g["subject"].strip()]
+    incomplets = [g for g in groups if not split_emails(g["to"]) or not g["subject"].strip()]
     if incomplets:
         for g in incomplets:
             nom = g["partner"]["name"] if g["partner"] else "les missions sans intérim"
@@ -915,10 +910,10 @@ def bulk_email():
     for g in groups:
         group_ids = [m["id"] for m in g["missions"]]
         nom = g["partner"]["name"] if g["partner"] else "sans intérim"
-        to_list = _addresses(g["to"])
+        to_list = split_emails(g["to"])
         try:
             attachments = [generate_mission_pdf(m["id"]) for m in g["missions"]]
-            send_bulk_email(group_ids, to_list, _addresses(g["cc"]),
+            send_bulk_email(group_ids, to_list, split_emails(g["cc"]),
                             g["subject"].strip(),
                             g["body"].replace(chr(13) + chr(10), chr(10)), attachments)
         except (PdfGenerationError, EmailError) as e:
@@ -967,8 +962,8 @@ def send_itinerary(mission_id):
         return retour
 
     driver = mission["driver"]
-    to = (driver.get("email") or "").strip()
-    if not to:
+    to_list = split_emails(driver.get("email"))
+    if not to_list:
         flash(f"{driver['last_name']} {driver['first_name']} n'a pas d'email sur sa fiche.", "error")
         return retour
 
@@ -980,7 +975,10 @@ def send_itinerary(mission_id):
 
     # Objet repris de l'email réellement parti au chauffeur, pour tomber
     # dans le même fil ; à défaut (journal purgé), celui qu'on aurait mis.
-    previous = repo.last_email_to(mission_id, to)
+    # Recherche sur la première adresse de la fiche : le journal enregistre
+    # tous les destinataires d'un envoi dans un même champ, une seule suffit
+    # donc à retrouver l'email d'origine.
+    previous = repo.last_email_to(mission_id, to_list[0])
     base_subject = (previous or {}).get("subject") or _driver_email_defaults(mission)[0]
     label = fmt_date_full(mission["mission_date"])
     lignes = [
@@ -990,7 +988,7 @@ def send_itinerary(mission_id):
     body = chr(10).join(lignes)
     try:
         send_followup_email(
-            mission_id, [to], _reply_subject(base_subject), body,
+            mission_id, to_list, _reply_subject(base_subject), body,
             in_reply_to=(previous or {}).get("message_id"),
             reply_to_graph_id=(previous or {}).get("provider_message_id"),
         )
@@ -998,7 +996,8 @@ def send_itinerary(mission_id):
         flash(f"Échec de l'envoi de l'itinéraire : {e}", "error")
         return retour
 
-    flash(f"Itinéraire envoyé à {to}, en réponse à son ordre de mission.", "success")
+    flash(f"Itinéraire envoyé à {', '.join(to_list)}, en réponse à son ordre de mission.",
+          "success")
     return retour
 
 
@@ -1060,20 +1059,20 @@ def bulk_email_drivers():
     sent, skipped, failed = [], [], []
     for m in missions:
         driver = m["driver"]
-        to = (driver.get("email") or "").strip()
-        if not to:
+        to_list = split_emails(driver.get("email"))
+        if not to_list:
             skipped.append(f"{m['reference']} ({driver['last_name']} : pas d'email)")
             continue
         subject, body = _driver_email_defaults(m)
         try:
             pdf_bytes, filename = generate_mission_pdf(m["id"])
-            send_mission_email(m["id"], [to], [], subject, body, pdf_bytes, filename)
+            send_mission_email(m["id"], to_list, [], subject, body, pdf_bytes, filename)
         except (PdfGenerationError, EmailError) as e:
             failed.append(f"{m['reference']} : {e}")
             continue
         repo.set_mission_status(m["id"], "envoyé")
         repo.mark_sent_driver(m["id"])
-        sent.append(f"{m['reference']} → {to}")
+        sent.append(f"{m['reference']} → {', '.join(to_list)}")
 
     if sent:
         flash(f"{len(sent)} email(s) envoyé(s) : {', '.join(sent)}.", "success")

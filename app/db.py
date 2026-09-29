@@ -30,7 +30,9 @@ SCHEMA_STATEMENTS = [
         id INT AUTO_INCREMENT PRIMARY KEY,
         last_name VARCHAR(120) NOT NULL,
         first_name VARCHAR(120) NOT NULL,
-        email VARCHAR(255) NOT NULL,
+        -- Une ou plusieurs adresses separees par « ; » (voir
+        -- utils.split_emails) : d'ou une colonne plus large qu'un email.
+        email VARCHAR(1024) NOT NULL,
         phone VARCHAR(40),
         license_number VARCHAR(60),
         active TINYINT(1) NOT NULL DEFAULT 1,
@@ -287,6 +289,16 @@ MIGRATIONS = [
     "ALTER TABLE missions ADD COLUMN price_hidden TINYINT(1) NOT NULL DEFAULT 0",
 ]
 
+# Elargissements de colonnes existantes. Contrairement aux ALTER ... ADD
+# ci-dessus, « MODIFY COLUMN » ne signale pas qu'il a deja ete applique : on
+# interroge donc information_schema avant, pour ne pas rejouer une DDL a
+# chaque demarrage (elles sont lentes sur TiDB serverless).
+# (table, colonne, longueur voulue, definition complete)
+COLUMN_WIDENINGS = [
+    ("crew", "email", 1024, "VARCHAR(1024) NOT NULL"),
+]
+
+
 # Codes d'erreur MySQL qui signifient « migration déjà appliquée » :
 # 1060 colonne déjà présente, 1061 index déjà présent.
 MIGRATION_ALREADY_APPLIED = (1060, 1061)
@@ -318,6 +330,27 @@ def _seed_partners(cur):
             (name, rank, DEFAULT_PARTNER_EMAIL_SUBJECT, DEFAULT_PARTNER_EMAIL_BODY),
         )
     return len(SEED_PARTNERS)
+
+
+def _widen_columns(cur):
+    """Applique COLUMN_WIDENINGS aux colonnes encore trop courtes. Renvoie
+    la liste des elargissements effectues."""
+    done = []
+    for table, column, length, definition in COLUMN_WIDENINGS:
+        cur.execute(
+            """SELECT CHARACTER_MAXIMUM_LENGTH AS len FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s""",
+            (table, column),
+        )
+        row = cur.fetchone()
+        if not row:
+            continue
+        current = row["len"] if isinstance(row, dict) else row[0]
+        if current is not None and int(current) >= length:
+            continue
+        cur.execute(f"ALTER TABLE {table} MODIFY COLUMN {column} {definition}")
+        done.append(f"{table}.{column} -> {definition}")
+    return done
 
 
 def _table_exists(cur, name):
@@ -484,6 +517,8 @@ def init_db(force=False, report=False):
             except Exception as e:
                 if getattr(e, "args", [None])[0] not in MIGRATION_ALREADY_APPLIED:
                     raise
+        for widened in _widen_columns(cur):
+            timings.append({"migration": f"MODIFY COLUMN {widened}", "ms": 0})
         created = _seed_partners(cur)
         if created:
             timings.append({"migration": f"{created} agences d'interim creees", "ms": 0})

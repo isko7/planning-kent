@@ -122,6 +122,14 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   d'adresse ») et remplacée par l'adresse officielle si elle correspond.
 - **Envoi par email** : au chauffeur + destinataires en copie, objet et corps
   personnalisables, PDF en pièce jointe, historique des envois.
+- **Plusieurs adresses par fiche** : le champ *Email* d'une fiche
+  *Personnel* accepte autant d'adresses que voulu, **séparées par un
+  point-virgule** (boîte perso + boîte de l'agence, par exemple). Toutes
+  reçoivent l'ordre de mission — envoi à l'unité comme envoi groupé — et
+  toutes sont pré-remplies dans le champ *Destinataires* de l'écran
+  d'envoi, où elles restent modifiables. La virgule et le retour à la ligne
+  sont acceptés à la saisie et ramenés au point-virgule à l'enregistrement
+  (`utils.split_emails`).
 - **Templates OM / BC modifiables** : le HTML/Jinja2 qui génère les PDF est
   stocké en base, éditable depuis *Templates* (aperçu sur données de démo,
   duplication pour tester une variante).
@@ -207,7 +215,8 @@ véhicules, clients et missions.
 ```
 crew           personnel : chauffeurs et autres (+ accès appli :
                can_login, is_admin, must_change_password, username,
-               password_hash). Anciennement « drivers » : le renommage est
+               password_hash ; email : une ou plusieurs adresses séparées
+               par « ; »). Anciennement « drivers » : le renommage est
                joué automatiquement au démarrage (db.TABLE_RENAMES)
 vehicles       véhicules (+ suivi : contrôle technique, entretien, km)
 clients        donneurs d'ordre, réutilisables
@@ -224,7 +233,11 @@ partners       agences d'intérim : coordonnées + modèle d'email de l'envoi
                groupé. Rattachées au personnel par crew.partner_id
 ```
 
-Détail complet dans `app/db.py` (`SCHEMA_STATEMENTS`).
+Détail complet dans `app/db.py` (`SCHEMA_STATEMENTS`). Les bases déjà en
+place sont mises à niveau au démarrage : `MIGRATIONS` ajoute les colonnes
+manquantes, `COLUMN_WIDENINGS` élargit celles devenues trop courtes (un
+`MODIFY COLUMN` ne se signalant pas comme « déjà appliqué », la longueur
+actuelle est lue dans `information_schema` avant de jouer la DDL).
 
 ---
 

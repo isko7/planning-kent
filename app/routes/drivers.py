@@ -5,7 +5,7 @@ from flask import (Blueprint, render_template, request, redirect, url_for, flash
 
 from app import repo
 from app.auth import current_user, hash_password, issue_token, set_auth_cookie
-from app.utils import DRIVER_COLOR_PALETTE
+from app.utils import DRIVER_COLOR_PALETTE, invalid_emails, normalize_emails
 
 bp = Blueprint("drivers", __name__, url_prefix="/chauffeurs")
 
@@ -19,7 +19,12 @@ def _form_to_data(form):
     return {
         "last_name": form.get("last_name", "").strip().upper(),
         "first_name": form.get("first_name", "").strip(),
-        "email": form.get("email", "").strip(),
+        # Plusieurs adresses possibles, separees par des points-virgules :
+        # une personne peut vouloir ses ordres de mission sur sa boite
+        # perso et celle de son agence. Stockees remises au propre (voir
+        # utils.normalize_emails) pour que la relecture de la fiche soit
+        # stable, quelle que soit la facon dont elles ont ete collees.
+        "email": normalize_emails(form.get("email", "")),
         "phone": form.get("phone", "").strip() or None,
         "license_number": form.get("license_number", "").strip() or None,
         "active": form.get("active") == "on",
@@ -42,6 +47,18 @@ def _form_context():
     """Listes deroulantes du formulaire : palette de couleurs et agences
     d'interim (ecran Partenaires)."""
     return {"palette": DRIVER_COLOR_PALETTE, "partners": repo.list_partners()}
+
+
+def _validate(data):
+    """Controles communs a la creation et a la modification."""
+    errors = []
+    if not data["last_name"] or not data["first_name"] or not data["email"]:
+        errors.append("Nom, prénom et email sont obligatoires.")
+    mauvaises = invalid_emails(data["email"])
+    if mauvaises:
+        errors.append("Adresse email invalide : " + ", ".join(mauvaises)
+                      + ". Séparez plusieurs adresses par un point-virgule.")
+    return errors
 
 
 def _apply_credentials(data, form, existing=None):
@@ -132,9 +149,7 @@ def list_drivers_view():
 def new_driver():
     if request.method == "POST":
         data = _form_to_data(request.form)
-        errors = []
-        if not data["last_name"] or not data["first_name"] or not data["email"]:
-            errors.append("Nom, prénom et email sont obligatoires.")
+        errors = _validate(data)
         errors += _apply_credentials(data, request.form)
         if errors:
             for message in errors:
@@ -156,9 +171,7 @@ def edit_driver(driver_id):
         return redirect(url_for("drivers.list_drivers_view"))
     if request.method == "POST":
         data = _form_to_data(request.form)
-        errors = []
-        if not data["last_name"] or not data["first_name"] or not data["email"]:
-            errors.append("Nom, prénom et email sont obligatoires.")
+        errors = _validate(data)
         errors += _apply_credentials(data, request.form, existing=driver)
         blocking = _guard_last_account(driver_id, data)
         if blocking:
