@@ -38,20 +38,10 @@
           <input type="hidden" name="return_time">
           <button type="submit" class="btn btn--secondary">↩ Créer le retour</button>
         </form>
-        {# L'itinéraire ne se propose qu'une fois l'ordre de mission parti
-           chez le chauffeur : il lui est envoyé en réponse à cet email-là,
-           pour que les deux se suivent dans sa boîte. Rien à voir avec la
-           case « Envoyer l'itinéraire » de sa fiche, qui ne règle que la
-           ligne ajoutée d'office à l'ordre de mission. #}
-        {% if mission.sent_driver_at %}
-        <form method="post" action="{{ url_for('missions.send_itinerary', mission_id=mission.id) }}"
-              target="{{ out }}" style="margin:0;">
-          <button type="submit" class="btn btn--secondary">🧭 Envoyer l'itinéraire</button>
-        </form>
-        {% endif %}
-        {# Les deux envois ferment la rangée, réduits à leur icône : bleu
-           pour l'intérim, rouge pour le chauffeur — les couleurs des deux
-           indicateurs d'envoi affichés au-dessus. #}
+        {# Les envois ferment la rangée, réduits à leur icône : bleu pour
+           l'intérim, rouge pour le chauffeur — les couleurs des deux
+           indicateurs d'envoi affichés au-dessus — puis jaune pour
+           l'itinéraire, qui prolonge l'envoi au chauffeur. #}
         {# Pas d'agence sur la fiche du chauffeur = pas de destinataire :
            le bouton n'aurait nulle part où envoyer. #}
         {% if mission.driver.partner_id %}
@@ -73,6 +63,27 @@
             <path d="M3 5h18v14H3z"/><path d="m3 6 9 7 9-7"/>
           </svg>
         </a>
+        {# L'itinéraire ne se propose qu'une fois l'ordre de mission parti
+           chez le chauffeur : il lui est envoyé en réponse à cet email-là,
+           pour que les deux se suivent dans sa boîte. D'où sa place juste
+           après l'envoi au chauffeur. Rien à voir avec la case « Envoyer
+           l'itinéraire » de sa fiche, qui ne règle que la ligne ajoutée
+           d'office à l'ordre de mission. #}
+        {% if mission.sent_driver_at %}
+        <form method="post" action="{{ url_for('missions.send_itinerary', mission_id=mission.id) }}"
+              target="{{ out }}" style="margin:0;">
+          <button type="submit" class="btn btn--yellow btn--icon"
+                  title="Envoyer l'itinéraire au chauffeur"
+                  aria-label="Envoyer l'itinéraire au chauffeur">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"
+                 fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>
+            </svg>
+          </button>
+        </form>
+        {% endif %}
       </div>
       {% endif %}
     </div>

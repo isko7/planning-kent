@@ -32,6 +32,9 @@
   --blue-dark: #164ea8;
   --blue-bg: #e8f0fd;
   --blue-text: #164ea8;
+  --yellow: #f2b01e;       /* aplat : envoi de l'itinéraire */
+  --yellow-dark: #d99806;
+  --yellow-ink: #3d2a00;   /* du blanc ne se lirait pas sur ce jaune */
   --grid-rule: #17181c;      /* séparateurs des jours du planning */
   --today-bg: #fff8f2;       /* colonne du jour */
   --continued-bg: #fcfbf9;   /* suite d'une mission de la veille (agenda) */
@@ -44,7 +47,8 @@
 /* ------------------------------------------------------------ mode sombre */
 /* data-theme="dark" sur <html>, posé avant l'affichage par _theme.html
    (choix mémorisé, sinon réglage du système). Restent communs aux deux
-   thèmes : les aplats rouge et bleu (texte blanc) et la barre du haut.
+   thèmes : les aplats rouge et bleu (texte blanc), l'aplat jaune (texte
+   sombre) et la barre du haut.
    Réservé à l'écran : une page imprimée reste en clair. */
 @media screen {
   :root[data-theme="dark"] {
@@ -241,6 +245,11 @@ a:hover { text-decoration: underline; }
 .btn--warn:hover { background: var(--warn-bg); }
 .btn--blue { background: var(--blue); color: #fff; }
 .btn--blue:hover { background: var(--blue-dark); }
+/* Aplat jaune, à côté des aplats bleu et rouge des deux autres envois.
+   Texte sombre et non blanc : c'est la seule des trois teintes assez
+   claire pour qu'un libellé blanc s'y efface. */
+.btn--yellow { background: var(--yellow); color: var(--yellow-ink); }
+.btn--yellow:hover { background: var(--yellow-dark); }
 .btn--sm { padding: 6px 11px; font-size: 12.5px; }
 /* Bouton hors service : il doit se voir, et le survol ne doit pas laisser
    croire le contraire (d'où l'annulation des :hover colorés ci-dessus). */
@@ -255,6 +264,7 @@ a:hover { text-decoration: underline; }
 .price-field button { flex: none; white-space: nowrap; }
 .price-value .is-hidden-price { text-decoration: line-through; color: var(--muted); }
 .btn--blue:disabled:hover { background: var(--blue); }
+.btn--yellow:disabled:hover { background: var(--yellow); }
 .btn--primary:disabled:hover { background: var(--red); }
 .btn--secondary:disabled:hover { background: var(--surface); }
 /* Bouton réduit à son icône (envois de la fiche mission) : carré, le libellé

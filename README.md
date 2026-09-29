@@ -46,7 +46,9 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   ne marcherait pas : les trajets du retour sont ceux de l'aller pris à
   l'envers, leurs heures d'origine n'ont plus de sens dans ce sens-là.
 - **Envoyer l'itinéraire** : sur la fiche d'un OM déjà envoyé à son
-  chauffeur, un bouton envoie le lien Google Maps de la mission **en
+  chauffeur, un bouton **jaune, réduit à sa boussole**, à la droite des
+  deux envois (bleu pour l'intérim, rouge pour le chauffeur), envoie le
+  lien Google Maps de la mission **en
   réponse à cet email-là** (même objet précédé de « Re: »), pour que le
   chauffeur retrouve les deux au même endroit dans sa boîte. Le bouton ne
   dépend pas de la case « Envoyer l'itinéraire » de la fiche du chauffeur,
