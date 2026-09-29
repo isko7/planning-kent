@@ -80,9 +80,19 @@
              qu'elle sera imprimée sur le BC, qui est toujours en jj/mm/aaaa. #}
           <div class="hint">Sur le BC : <strong id="emission-date-preview">—</strong></div>
         </div>
+        {# Même bascule que sur la fiche mission, mais enregistrée avec le
+           formulaire : le bouton ne fait que retourner le champ caché
+           (mission_form.js:initPriceVisibility). Ce formulaire n'est de
+           toute façon accessible qu'aux administrateurs. #}
         <div class="field">
           <label>Prix du transport</label>
-          <input type="text" name="price" value="{{ mission.price or '' }}" placeholder="ex. 480 €">
+          <div class="price-field">
+            <input type="text" name="price" value="{{ mission.price or '' }}" placeholder="ex. 480 €">
+            <input type="hidden" name="price_hidden" id="price-hidden"
+                   value="{{ '1' if mission.price_hidden else '0' }}">
+            <button type="button" class="btn btn--ghost btn--sm" id="price-visibility"></button>
+          </div>
+          <div class="hint" id="price-visibility-hint"></div>
         </div>
       </div>
 
@@ -235,6 +245,15 @@
         </div>
         <button type="button" id="apply-vehicle-all" class="btn btn--secondary btn--sm">Appliquer à toutes les lignes</button>
       </div>
+      {# Véhicule « (pause) » : le libellé du trajet devient une liste
+         modifiable — les formulations de PAUSE_LABELS (.env), et tout
+         texte libre reste possible (mission_form.js:togglePauseLabel).
+         C'est aussi d'ici que le script les lit : une seule source. #}
+      <datalist id="pause-labels">
+        {% for label in pause_labels %}
+        <option value="{{ label }}"></option>
+        {% endfor %}
+      </datalist>
       <table class="edit-rows" id="legs-table">
         <thead>
           <tr>
@@ -251,8 +270,14 @@
             <td><input type="text" name="leg_start_time[]" value="{{ l.start_time or '' }}" placeholder="11:00"></td>
             <td><input type="text" name="leg_end_time[]" value="{{ l.end_time or '' }}" placeholder="11:00"></td>
             <td>
+              {# « pause » et « relais » sont des valeurs à part entière ; la
+                 valeur vide ne signifie que « pas encore choisi », ce qui
+                 permet à « Appliquer à toutes les lignes » de remplir une
+                 ligne neuve sans écraser une pause. Côté serveur les deux
+                 donnent vehicle_id = NULL (missions.py:_parse_legs). #}
               <select name="leg_vehicle_id[]" class="leg-vehicle">
-                <option value="">— (pause) —</option>
+                <option value="">— Choisir —</option>
+                <option value="pause" {{ 'selected' if not l.is_relay and not l.vehicle_id }}>— (pause) —</option>
                 <option value="relais" {{ 'selected' if l.is_relay }}>— (relais) —</option>
                 {% for v in vehicles %}
                 <option value="{{ v.id }}" {{ 'selected' if not l.is_relay and l.vehicle_id == v.id }}>{{ v.plate }}{{ ' — ' ~ v.name if v.name }}</option>
@@ -275,6 +300,8 @@
               </div>
             </td>
             <td class="row-actions">
+              <button type="button" class="row-grip" title="Glisser pour déplacer ce trajet"
+                      aria-label="Glisser pour déplacer ce trajet">⠿</button>
               <button type="button" class="row-move row-up" title="Monter">&#9650;</button>
               <button type="button" class="row-move row-down" title="Descendre">&#9660;</button>
               <button type="button" class="row-remove" title="Supprimer">&times;</button>
@@ -301,7 +328,10 @@
         <span>Distance Transport : <strong id="legs-summary-km-transport">—</strong></span>
       </div>
       <button type="button" id="add-leg-row" class="btn btn--secondary btn--sm add-row-btn">+ Ajouter un trajet</button>
-      <div class="hint" style="margin-top:8px;">Début = fin ⇒ point de contrôle (prise/fin de service). <strong>(pause)</strong> : arrêt sans conduite. <strong>(relais)</strong> : changement de chauffeur/véhicule.</div>
+      <div class="hint" style="margin-top:8px;">Glissez un trajet par sa poignée ⠿ (ou les flèches ▲▼)
+        pour changer l'ordre — c'est celui qui est enregistré et imprimé.<br>
+        Début = fin ⇒ point de contrôle (prise/fin de service). <strong>(pause)</strong> : arrêt sans conduite. <strong>(relais)</strong> : changement de chauffeur/véhicule.
+        « Appliquer à toutes les lignes » ne touche ni aux pauses ni aux relais.</div>
     </div>
 
     <div class="btn-row">
@@ -345,7 +375,8 @@
       <td><input type="text" name="leg_end_time[]" placeholder="11:00"></td>
       <td>
         <select name="leg_vehicle_id[]" class="leg-vehicle">
-          <option value="">— (pause) —</option>
+          <option value="">— Choisir —</option>
+          <option value="pause">— (pause) —</option>
           <option value="relais">— (relais) —</option>
           {% for v in vehicles %}
           <option value="{{ v.id }}">{{ v.plate }}{{ ' — ' ~ v.name if v.name }}</option>
@@ -368,6 +399,8 @@
         </div>
       </td>
       <td class="row-actions">
+              <button type="button" class="row-grip" title="Glisser pour déplacer ce trajet"
+                      aria-label="Glisser pour déplacer ce trajet">⠿</button>
               <button type="button" class="row-move row-up" title="Monter">&#9650;</button>
               <button type="button" class="row-move row-down" title="Descendre">&#9660;</button>
               <button type="button" class="row-remove" title="Supprimer">&times;</button>

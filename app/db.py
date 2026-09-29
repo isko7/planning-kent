@@ -17,6 +17,7 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 from app.config import DB_CONFIG, env
+from app.utils import DEFAULT_PARTNER_EMAIL_BODY, DEFAULT_PARTNER_EMAIL_SUBJECT
 
 # Index déclarés en ligne dans les CREATE TABLE (MySQL ne connaît pas
 # « CREATE INDEX IF NOT EXISTS »). Pas de contraintes FOREIGN KEY : la
@@ -113,6 +114,10 @@ SCHEMA_STATEMENTS = [
         bc_client_phone VARCHAR(255),
         emission_date VARCHAR(10),
         price VARCHAR(60),
+        -- Bascule « Masquer le prix » de la fiche mission (reservee aux
+        -- administrateurs) : retire le prix du PDF, et des ecrans pour les
+        -- non-administrateurs. 0 = prix visible.
+        price_hidden TINYINT(1) NOT NULL DEFAULT 0,
         status VARCHAR(30) NOT NULL DEFAULT 'brouillon',
         om_template_id INT NULL,
         bc_template_id INT NULL,
@@ -120,8 +125,15 @@ SCHEMA_STATEMENTS = [
         driving_minutes INT NULL,
         pause_minutes INT NULL,
         notes TEXT,
+        -- Date d'envoi a l'agence d'interim. Nom historique (l'envoi
+        -- groupe s'appelait « Envoyer a Randstad ») : renommer la colonne
+        -- couterait une migration risquee pour un simple libelle.
         sent_randstad_at DATETIME NULL,
         sent_driver_at DATETIME NULL,
+        -- Rempli par le bouton « Archiver » de l'onglet Missions passees :
+        -- la mission sort de la liste courante et bascule dans l'onglet
+        -- Missions archivees. NULL = mission active.
+        archived_at DATETIME NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY idx_missions_driver (driver_id),
@@ -187,6 +199,14 @@ SCHEMA_STATEMENTS = [
         body MEDIUMTEXT,
         status VARCHAR(20) NOT NULL,
         error_message TEXT,
+        -- En-tete Message-ID pose a l'envoi, quand le mode d'envoi nous
+        -- laisse la main dessus (SMTP). Sert a rattacher l'email
+        -- « itineraire » a l'ordre de mission deja envoye (In-Reply-To).
+        message_id VARCHAR(255) NULL,
+        -- Identifiant du message chez le fournisseur (Graph), une fois range
+        -- dans le dossier de l'application : le seul qui permette d'y
+        -- repondre par createReply. NULL en SMTP.
+        provider_message_id VARCHAR(512) NULL,
         sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY idx_email_mission (mission_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -198,6 +218,21 @@ SCHEMA_STATEMENTS = [
         mission_id INT NOT NULL,
         linked_mission_id INT NOT NULL,
         PRIMARY KEY (mission_id, linked_mission_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS partners (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(120) NOT NULL,
+        phone VARCHAR(40),
+        email VARCHAR(255),
+        email_subject VARCHAR(255),
+        email_body TEXT,
+        -- Ordre d'affichage dans le menu deroulant « Interim » d'une fiche
+        -- Personnel : impose Randstad, Artus, Adecco plutot que l'alphabetique.
+        position INT NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
     """
@@ -245,6 +280,11 @@ MIGRATIONS = [
     "ALTER TABLE vehicles ADD COLUMN maintenance_date VARCHAR(10)",
     "ALTER TABLE vehicles ADD COLUMN last_maintenance_km INT NULL",
     "ALTER TABLE mission_legs ADD COLUMN distance_m INT NULL",
+    "ALTER TABLE crew ADD COLUMN partner_id INT NULL",
+    "ALTER TABLE missions ADD COLUMN archived_at DATETIME NULL",
+    "ALTER TABLE email_log ADD COLUMN message_id VARCHAR(255) NULL",
+    "ALTER TABLE email_log ADD COLUMN provider_message_id VARCHAR(512) NULL",
+    "ALTER TABLE missions ADD COLUMN price_hidden TINYINT(1) NOT NULL DEFAULT 0",
 ]
 
 # Codes d'erreur MySQL qui signifient « migration déjà appliquée » :
@@ -255,6 +295,29 @@ MIGRATION_ALREADY_APPLIED = (1060, 1061)
 # NOT EXISTS crew » créerait sinon une table vide, et le renommage
 # échouerait en laissant les données dans l'ancienne table.
 TABLE_RENAMES = [("drivers", "crew")]
+
+
+# Agences d'interim de depart, dans l'ordre voulu au menu deroulant
+# « Interim » d'une fiche Personnel. Posees une seule fois, a la creation de
+# la table : ensuite l'ecran Partenaires fait foi (une agence supprimee ne
+# revient pas au demarrage suivant).
+SEED_PARTNERS = ["Randstad", "Artus", "Adecco"]
+
+
+def _seed_partners(cur):
+    """Renvoie le nombre d'agences creees (0 si la table est deja peuplee)."""
+    cur.execute("SELECT COUNT(*) AS n FROM partners")
+    row = cur.fetchone()
+    already = int(row["n"] if isinstance(row, dict) else row[0])
+    if already:
+        return 0
+    for rank, name in enumerate(SEED_PARTNERS, start=1):
+        cur.execute(
+            "INSERT INTO partners (name, position, email_subject, email_body) "
+            "VALUES (%s, %s, %s, %s)",
+            (name, rank, DEFAULT_PARTNER_EMAIL_SUBJECT, DEFAULT_PARTNER_EMAIL_BODY),
+        )
+    return len(SEED_PARTNERS)
 
 
 def _table_exists(cur, name):
@@ -349,7 +412,7 @@ def _get_conn():
 class _Cursor:
     """Enveloppe le curseur PyMySQL pour accepter la syntaxe de repo.py :
     `db.execute(sql, params)` renvoie un objet avec .fetchone()/.fetchall()/
-    .lastrowid, en traduisant les placeholders `?` en `%s`."""
+    .lastrowid/.rowcount, en traduisant les placeholders `?` en `%s`."""
 
     def __init__(self, cursor):
         self._c = cursor
@@ -367,6 +430,12 @@ class _Cursor:
     @property
     def lastrowid(self):
         return self._c.lastrowid
+
+    @property
+    def rowcount(self):
+        """Lignes reellement modifiees par le dernier UPDATE/DELETE : sert a
+        compter ce qui a change (archivage d'une selection, par exemple)."""
+        return self._c.rowcount
 
 
 @contextmanager
@@ -415,6 +484,9 @@ def init_db(force=False, report=False):
             except Exception as e:
                 if getattr(e, "args", [None])[0] not in MIGRATION_ALREADY_APPLIED:
                     raise
+        created = _seed_partners(cur)
+        if created:
+            timings.append({"migration": f"{created} agences d'interim creees", "ms": 0})
     conn.commit()
     _initialized = True
     return timings if report else None

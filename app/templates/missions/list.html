@@ -18,6 +18,8 @@
        class="tab {{ 'tab--active' if tab == 'current' }}">À venir</a>
     <a href="{{ url_for('missions.list_missions_view', tab='past', driver_id=filters.driver_id, status=filters.status) }}"
        class="tab {{ 'tab--active' if tab == 'past' }}">Missions passées</a>
+    <a href="{{ url_for('missions.list_missions_view', tab='archived', driver_id=filters.driver_id, status=filters.status) }}"
+       class="tab {{ 'tab--active' if tab == 'archived' }}">Missions archivées</a>
   </div>
 
   <details class="card notes-card" id="notes">
@@ -69,19 +71,45 @@
   {# Formulaire "vide" : les cases à cocher du tableau lui sont rattachées
      via l'attribut form="bulk-form", pour ne pas imbriquer de <form>
      (le tableau contient déjà un mini-formulaire par ligne pour "Dupliquer"). #}
-  <form method="get" action="{{ url_for('missions.bulk_email') }}" id="bulk-form"></form>
+  <form method="get" action="{{ url_for('missions.bulk_email') }}" id="bulk-form">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% if tab == 'archived' %}<input type="hidden" name="archived" value="0">{% endif %}
+  </form>
 
   <div class="card" style="padding:0;">
     {% if missions %}
     {% if is_admin %}
+    {# Les envois n'ont de sens que sur les missions à venir : l'onglet des
+       missions passées propose l'archivage à la place, et l'onglet des
+       archivées le retour en arrière. #}
     <div class="btn-row" style="padding:16px 16px 0; margin-top:0;">
-      <button type="submit" form="bulk-form" class="btn btn--blue">Envoyer à Randstad</button>
+      {% if tab == 'current' %}
+      {# Désactivé dès qu'une mission cochée a un chauffeur sans intérim :
+         l'envoi n'aurait pas de destinataire pour elle (voir le script en
+         bas de page, et le même contrôle côté serveur dans bulk_email). #}
+      <button type="submit" form="bulk-form" class="btn btn--blue" id="bulk-interim">Envoyer à l'intérim</button>
+      <span class="hint" id="bulk-interim-warning" hidden style="align-self:center; color:var(--err-text);"></span>
       <button type="submit" form="bulk-form" class="btn btn--primary"
               formaction="{{ url_for('missions.bulk_email_drivers') }}" formmethod="post"
               onclick="return confirm('Envoyer chaque mission cochée à son chauffeur ? Un email par mission, envoyé immédiatement.');">
         ✉ Envoyer aux chauffeurs
       </button>
       <span class="hint" style="align-self:center;">Coche les missions, puis choisis l'envoi.</span>
+      {% elif tab == 'past' %}
+      <button type="submit" form="bulk-form" class="btn btn--warn"
+              formaction="{{ url_for('missions.archive_missions') }}" formmethod="post"
+              onclick='return confirm("Archiver les missions cochées ? Elles quittent cette liste pour l’onglet « Missions archivées » — rien n’est supprimé.");'>
+        Archiver
+      </button>
+      <span class="hint" style="align-self:center;">Coche les missions passées à ranger, puis archive-les.</span>
+      {% else %}
+      <button type="submit" form="bulk-form" class="btn btn--secondary"
+              formaction="{{ url_for('missions.archive_missions') }}" formmethod="post"
+              onclick="return confirm('Désarchiver les missions cochées ?');">
+        ↩ Désarchiver
+      </button>
+      <span class="hint" style="align-self:center;">Coche les missions à remettre dans la liste.</span>
+      {% endif %}
     </div>
     {% endif %}
     <table class="data-table">
@@ -95,7 +123,8 @@
       <tbody>
         {% for m in missions %}
         <tr>
-          {% if is_admin %}<td><input type="checkbox" name="mission_ids" value="{{ m.id }}" form="bulk-form" class="row-check"></td>{% endif %}
+          {% if is_admin %}<td><input type="checkbox" name="mission_ids" value="{{ m.id }}" form="bulk-form" class="row-check"
+                     {{ 'data-no-partner' if not m.driver_partner_id }}></td>{% endif %}
           <td><a href="{{ url_for('missions.detail_mission', mission_id=m.id) }}"><strong>{{ m.mission_name or m.reference }}</strong></a></td>
           <td><div>{{ m.mission_date | day_label }}</div><div>{{ m.mission_date | fmt_date_long }}</div></td>
           <td>{{ (m.service_start | fmt_time) if m.service_start else '—' }}</td>
@@ -107,7 +136,7 @@
             {% if m.status != 'envoyé' %}<span class="badge badge--{{ m.status }}">{{ m.status }}</span>{% endif %}
             {% if m.sent_randstad_at or m.sent_driver_at %}
             <div class="flag-row">
-              {% if m.sent_randstad_at %}<span class="flag flag--randstad" title="Envoyé à Randstad le {{ m.sent_randstad_at }}">✓ Randstad</span>{% endif %}
+              {% if m.sent_randstad_at %}<span class="flag flag--randstad" title="Envoyé à l'intérim le {{ m.sent_randstad_at }}">✓ Intérim</span>{% endif %}
               {% if m.sent_driver_at %}<span class="flag flag--driver" title="Envoyé au chauffeur le {{ m.sent_driver_at }}">✓ Chauffeur</span>{% endif %}
             </div>
             {% endif %}
@@ -144,10 +173,11 @@
     {% else %}
     <div class="empty-state">
       <div>
-        {% if tab == 'past' %}Aucune mission passée ne correspond aux filtres.
+        {% if tab == 'archived' %}Aucune mission archivée ne correspond aux filtres.
+        {% elif tab == 'past' %}Aucune mission passée ne correspond aux filtres.
         {% else %}Aucune mission à venir ne correspond aux filtres.{% endif %}
       </div>
-      {% if tab == 'past' %}
+      {% if tab in ('past', 'archived') %}
       <a href="{{ url_for('missions.list_missions_view') }}" class="btn btn--secondary">Voir les missions à venir</a>
       {% else %}
       {% if is_admin %}<a href="{{ url_for('missions.new_mission') }}" class="btn btn--primary">Créer un ordre de mission</a>{% endif %}
@@ -159,11 +189,44 @@
   <script>
     (function () {
       var selectAll = document.getElementById("select-all");
+      var interimBtn = document.getElementById("bulk-interim");
+      var warning = document.getElementById("bulk-interim-warning");
+
+      // Une mission dont le chauffeur n'a pas d'intérim n'a pas de
+      // destinataire : tant qu'il y en a une de cochée, l'envoi groupé à
+      // l'intérim reste hors d'atteinte, en disant lesquelles.
+      function refreshInterim() {
+        if (!interimBtn) return;
+        var orphelines = Array.prototype.filter.call(
+          document.querySelectorAll(".row-check:checked"),
+          function (cb) { return cb.hasAttribute("data-no-partner"); }
+        );
+        interimBtn.disabled = orphelines.length > 0;
+        if (!warning) return;
+        warning.hidden = orphelines.length === 0;
+        if (orphelines.length) {
+          var noms = orphelines.map(function (cb) {
+            var cell = cb.closest("tr").querySelector("td:nth-child(2)");
+            return cell ? cell.textContent.trim() : "";
+          });
+          warning.textContent = noms.length + " mission(s) sans intérim sur la fiche du chauffeur : "
+            + noms.join(", ") + ". Renseignez-le, ou décochez-les.";
+          interimBtn.title = warning.textContent;
+        } else {
+          interimBtn.title = "";
+        }
+      }
+
       if (selectAll) {
         selectAll.addEventListener("change", function () {
           document.querySelectorAll(".row-check").forEach(function (cb) { cb.checked = selectAll.checked; });
+          refreshInterim();
         });
       }
+      document.addEventListener("change", function (e) {
+        if (e.target.classList && e.target.classList.contains("row-check")) refreshInterim();
+      });
+      refreshInterim();
     })();
   </script>
 {% endblock %}

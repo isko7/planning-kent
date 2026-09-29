@@ -35,6 +35,21 @@
         <label>N° de permis</label>
         <input type="text" name="license_number" value="{{ driver.license_number or '' }}">
       </div>
+      {# Agence d'interim de cette personne : fournit le destinataire et le
+         modele d'email du bouton « Envoyer a l'interim » quand une de ses
+         missions est envoyee. La liste vient de l'ecran Partenaires. #}
+      <div class="field">
+        <label>Intérim</label>
+        <select name="partner_id">
+          <option value="">— Aucun —</option>
+          {% for p in partners %}
+          <option value="{{ p.id }}" {{ 'selected' if driver.partner_id == p.id }}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+        {% if not partners %}
+        <div class="hint">Aucune agence enregistrée — ajoutez-la dans <a href="{{ url_for('partners.list_partners_view') }}">Partenaires</a>.</div>
+        {% endif %}
+      </div>
       <div class="field">
         <label>&nbsp;</label>
         <div class="checkbox-field">

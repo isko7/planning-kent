@@ -46,14 +46,15 @@ def create_driver(data):
         cur = db.execute(
             """INSERT INTO crew (last_name, first_name, email, phone, license_number, active, color,
                send_itinerary, can_login, is_admin, must_change_password, username,
-               password_hash, notes, remarks)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               password_hash, notes, remarks, partner_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (data["last_name"], data["first_name"], data["email"], data.get("phone"),
              data.get("license_number"), 1 if data.get("active", True) else 0,
              data.get("color") or None, 1 if data.get("send_itinerary") else 0,
              1 if data.get("can_login") else 0, 1 if data.get("is_admin") else 0,
              1 if data.get("must_change_password") else 0, data.get("username") or None,
-             data.get("password_hash") or None, data.get("notes"), data.get("remarks")),
+             data.get("password_hash") or None, data.get("notes"), data.get("remarks"),
+             data.get("partner_id") or None),
         )
         return cur.lastrowid
 
@@ -63,13 +64,13 @@ def update_driver(driver_id, data):
     laisse le champ vide quand on ne veut pas le remplacer)."""
     fields = ["last_name=?", "first_name=?", "email=?", "phone=?", "license_number=?",
               "active=?", "color=?", "send_itinerary=?", "can_login=?", "is_admin=?",
-              "username=?", "notes=?", "remarks=?", "updated_at=?"]
+              "username=?", "notes=?", "remarks=?", "partner_id=?", "updated_at=?"]
     params = [data["last_name"], data["first_name"], data["email"], data.get("phone"),
               data.get("license_number"), 1 if data.get("active", True) else 0,
               data.get("color") or None, 1 if data.get("send_itinerary") else 0,
               1 if data.get("can_login") else 0, 1 if data.get("is_admin") else 0,
               data.get("username") or None, data.get("notes"), data.get("remarks"),
-              now_iso()]
+              data.get("partner_id") or None, now_iso()]
     if "password_hash" in data:
         fields.insert(-1, "password_hash=?")
         params.insert(-1, data.get("password_hash") or None)
@@ -292,6 +293,70 @@ def delete_client(client_id):
         db.execute("DELETE FROM clients WHERE id = ?", (client_id,))
 
 
+# ------------------------------------------------------------- partenaires
+# Agences d'interim : fournissent le destinataire et le modele d'email de
+# l'envoi groupe (« Envoyer a l'interim »), et se rattachent aux fiches
+# Personnel par crew.partner_id.
+def list_partners():
+    """Triees par `position` : l'ordre voulu au menu deroulant d'une fiche
+    Personnel. A position egale (agences ajoutees ensuite), alphabetique."""
+    with get_db() as db:
+        return rows_to_dicts(db.execute(
+            "SELECT * FROM partners ORDER BY position, name"
+        ).fetchall())
+
+
+def get_partner(partner_id):
+    if not partner_id:
+        return None
+    with get_db() as db:
+        return row_to_dict(db.execute(
+            "SELECT * FROM partners WHERE id = ?", (partner_id,)
+        ).fetchone())
+
+
+def create_partner(data):
+    with get_db() as db:
+        row = db.execute("SELECT COALESCE(MAX(position), 0) AS p FROM partners").fetchone()
+        position = data.get("position")
+        if position is None:
+            position = int(row["p"]) + 1
+        cur = db.execute(
+            """INSERT INTO partners (name, phone, email, email_subject, email_body, position)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (data["name"], data.get("phone"), data.get("email"),
+             data.get("email_subject"), data.get("email_body"), position),
+        )
+        return cur.lastrowid
+
+
+def update_partner(partner_id, data):
+    with get_db() as db:
+        db.execute(
+            """UPDATE partners SET name=?, phone=?, email=?, email_subject=?, email_body=?,
+               position=?, updated_at=? WHERE id=?""",
+            (data["name"], data.get("phone"), data.get("email"), data.get("email_subject"),
+             data.get("email_body"), data.get("position") or 0, now_iso(), partner_id),
+        )
+
+
+def delete_partner(partner_id):
+    """Detache d'abord les fiches Personnel qui pointaient dessus : sans
+    cela leur menu « Interim » afficherait un partenaire disparu (il n'y a
+    pas de FOREIGN KEY, voir l'entete de db.py)."""
+    with get_db() as db:
+        db.execute("UPDATE crew SET partner_id = NULL WHERE partner_id = ?", (partner_id,))
+        db.execute("DELETE FROM partners WHERE id = ?", (partner_id,))
+
+
+def count_crew_by_partner(partner_id):
+    with get_db() as db:
+        row = db.execute(
+            "SELECT COUNT(*) AS n FROM crew WHERE partner_id = ?", (partner_id,)
+        ).fetchone()
+        return int(row["n"]) if row else 0
+
+
 # -------------------------------------------------------------- templates
 def list_templates(type_=None):
     with get_db() as db:
@@ -375,11 +440,19 @@ _MISSIONS_FROM = """FROM missions m
 
 
 def _missions_filters(driver_id, date_from, date_to, status, name, ids=None,
-                      service_cutoff=None):
+                      service_cutoff=None, archived=None):
     """Fragment WHERE + paramètres, partagé par list_missions() et
     count_missions() pour que le total de la pagination corresponde
-    exactement aux lignes affichées."""
+    exactement aux lignes affichées.
+
+    `archived` : False = missions actives seulement, True = archivées
+    seulement, None = les deux (comportement de tous les appels qui ne s'en
+    préoccupent pas, dont le planning)."""
     q, params = "", []
+    if archived is True:
+        q += " AND m.archived_at IS NOT NULL"
+    elif archived is False:
+        q += " AND m.archived_at IS NULL"
     if ids is not None:
         # Liste vide : aucune mission (« IN () » serait invalide en SQL).
         q += f" AND m.id IN ({','.join(['?'] * len(ids))})" if ids else " AND 1=0"
@@ -461,19 +534,23 @@ def _service_cutoff(mode, today, now_hm):
 
 
 def count_missions(driver_id=None, date_from=None, date_to=None, status=None, name=None,
-                   service_cutoff=None):
+                   service_cutoff=None, archived=None):
     where, params = _missions_filters(driver_id, date_from, date_to, status, name,
-                                      service_cutoff=service_cutoff)
+                                      service_cutoff=service_cutoff, archived=archived)
     with get_db() as db:
         return db.execute(f"SELECT COUNT(*) AS c {_MISSIONS_FROM}{where}", params).fetchone()["c"]
 
 
 def list_missions(driver_id=None, date_from=None, date_to=None, status=None, name=None,
-                  ascending=False, limit=None, offset=0, ids=None, service_cutoff=None):
+                  ascending=False, limit=None, offset=0, ids=None, service_cutoff=None,
+                  archived=None):
     where, params = _missions_filters(driver_id, date_from, date_to, status, name, ids,
-                                      service_cutoff=service_cutoff)
+                                      service_cutoff=service_cutoff, archived=archived)
+    # driver_partner_id : la liste s'en sert pour savoir si l'envoi a
+    # l'interim est possible pour cette mission (chauffeur rattache a une
+    # agence ou non).
     q = f"""SELECT m.*, d.last_name AS driver_last_name, d.first_name AS driver_first_name,
-                   c.name AS client_name
+                   d.partner_id AS driver_partner_id, c.name AS client_name
             {_MISSIONS_FROM}{where}"""
     # Un même jour se lit toujours dans l'ordre des prises de service, quel
     # que soit le sens des dates ; les missions sans horaire en tête (NULL
@@ -612,9 +689,9 @@ def create_mission(data):
             """INSERT INTO missions (reference, mission_name, shuttle_label, driver_id,
                mission_date, motif, remarks, client_id, bc_client_name, bc_client_address,
                bc_client_postal_code, bc_client_city, bc_client_phone,
-               emission_date, price, status,
+               emission_date, price, price_hidden, status,
                om_template_id, bc_template_id, amplitude_minutes, driving_minutes, pause_minutes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (reference, data.get("mission_name") or None,
              data.get("shuttle_label") or None, data["driver_id"], data["mission_date"],
              data.get("motif") or "Transport Occasionnel",
@@ -622,7 +699,8 @@ def create_mission(data):
              data.get("bc_client_name"), data.get("bc_client_address"),
              data.get("bc_client_postal_code"), data.get("bc_client_city"),
              data.get("bc_client_phone"), data.get("emission_date"),
-             data.get("price"), data.get("status") or "brouillon",
+             data.get("price"), 1 if data.get("price_hidden") else 0,
+             data.get("status") or "brouillon",
              data.get("om_template_id") or None, data.get("bc_template_id") or None,
              amplitude, driving, pause),
         )
@@ -654,6 +732,7 @@ def _copy_base_fields(src):
         # émis aujourd'hui, pas à la date de l'original.
         "emission_date": now_paris().date().isoformat(),
         "price": src["price"],
+        "price_hidden": src.get("price_hidden") or 0,
         "status": "brouillon",
         "om_template_id": src["om_template_id"],
         "bc_template_id": src["bc_template_id"],
@@ -754,7 +833,7 @@ def update_mission(mission_id, data):
     amplitude, driving, pause = _legs_summary_fields(data.get("legs") or [])
     with get_db() as db:
         # Mission confiée à quelqu'un d'autre : l'OM déjà envoyé ne vaut
-        # plus (ni pour Randstad, ni pour l'ancien chauffeur). Les deux
+        # plus (ni pour l'interim, ni pour l'ancien chauffeur). Les deux
         # indicateurs d'envoi repartent à zéro, il faut renvoyer.
         row = db.execute("SELECT driver_id FROM missions WHERE id = ?", (mission_id,)).fetchone()
         driver_changed = bool(row) and row["driver_id"] != data["driver_id"]
@@ -764,7 +843,7 @@ def update_mission(mission_id, data):
                shuttle_label=?, motif=?, remarks=?,
                client_id=?, bc_client_name=?, bc_client_address=?, bc_client_postal_code=?,
                bc_client_city=?, bc_client_phone=?,
-               emission_date=?, price=?, status=?, om_template_id=?, bc_template_id=?,
+               emission_date=?, price=?, price_hidden=?, status=?, om_template_id=?, bc_template_id=?,
                amplitude_minutes=?, driving_minutes=?, pause_minutes=?,
                updated_at=?""" + resend + " WHERE id=?",
             (data["driver_id"], data["mission_date"], data.get("mission_name") or None,
@@ -774,7 +853,8 @@ def update_mission(mission_id, data):
              data.get("bc_client_name"), data.get("bc_client_address"),
              data.get("bc_client_postal_code"), data.get("bc_client_city"),
              data.get("bc_client_phone"), data.get("emission_date"),
-             data.get("price"), data.get("status") or "brouillon",
+             data.get("price"), 1 if data.get("price_hidden") else 0,
+             data.get("status") or "brouillon",
              data.get("om_template_id") or None, data.get("bc_template_id") or None,
              amplitude, driving, pause,
              now_iso(), mission_id),
@@ -828,6 +908,35 @@ def set_mission_status(mission_id, status):
         db.execute("UPDATE missions SET status=?, updated_at=? WHERE id=?", (status, now_iso(), mission_id))
 
 
+def set_missions_archived(mission_ids, archived):
+    """Archive ou desarchive plusieurs missions d'un coup. Renvoie le nombre
+    de lignes reellement changees (une mission deja dans l'etat vise n'est
+    pas recomptee)."""
+    if not mission_ids:
+        return 0
+    placeholders = ",".join(["?"] * len(mission_ids))
+    with get_db() as db:
+        if archived:
+            cur = db.execute(
+                f"UPDATE missions SET archived_at = ? WHERE id IN ({placeholders}) "
+                "AND archived_at IS NULL",
+                [now_iso()] + list(mission_ids))
+        else:
+            cur = db.execute(
+                f"UPDATE missions SET archived_at = NULL WHERE id IN ({placeholders}) "
+                "AND archived_at IS NOT NULL",
+                list(mission_ids))
+        return cur.rowcount
+
+
+def set_price_hidden(mission_id, hidden):
+    """Bascule « prix masque » d'une mission. Colonne a part du formulaire :
+    l'enregistrement d'un ordre de mission n'y touche pas."""
+    with get_db() as db:
+        db.execute("UPDATE missions SET price_hidden=?, updated_at=? WHERE id=?",
+                   (1 if hidden else 0, now_iso(), mission_id))
+
+
 def mark_sent_randstad(mission_id):
     with get_db() as db:
         db.execute("UPDATE missions SET sent_randstad_at=? WHERE id=?", (now_iso(), mission_id))
@@ -864,13 +973,32 @@ def delete_attachment(attachment_id):
 
 
 # ------------------------------------------------------------- email log
-def log_email(mission_id, to_addresses, cc_addresses, subject, body, status, error_message=None):
+def log_email(mission_id, to_addresses, cc_addresses, subject, body, status, error_message=None,
+              message_id=None, provider_message_id=None):
     with get_db() as db:
         db.execute(
             """INSERT INTO email_log (mission_id, to_addresses, cc_addresses, subject, body, status,
-               error_message) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (mission_id, to_addresses, cc_addresses, subject, body, status, error_message),
+               error_message, message_id, provider_message_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (mission_id, to_addresses, cc_addresses, subject, body, status, error_message,
+             message_id, provider_message_id),
         )
+
+
+def last_email_to(mission_id, address):
+    """Dernier email parti avec succes pour cette mission vers cette
+    adresse. Sert a repondre dans le fil de l'ordre de mission deja envoye
+    au chauffeur : on y reprend l'objet et, s'il a ete pose, le Message-ID.
+    None si rien n'est encore parti a cette adresse."""
+    if not address:
+        return None
+    with get_db() as db:
+        return row_to_dict(db.execute(
+            """SELECT * FROM email_log
+               WHERE mission_id = ? AND status = 'sent' AND to_addresses LIKE ?
+               ORDER BY sent_at DESC, id DESC LIMIT 1""",
+            (mission_id, f"%{address}%"),
+        ).fetchone())
 
 
 def list_email_log(mission_id):

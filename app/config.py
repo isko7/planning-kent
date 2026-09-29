@@ -173,9 +173,13 @@ O365_CLIENT_ID = env("O365_CLIENT_ID", "")
 O365_CLIENT_SECRET = env("O365_CLIENT_SECRET", "")
 O365_SENDER_EMAIL = env("O365_SENDER_EMAIL", SMTP_USER)
 
-# Adresse pré-remplie comme destinataire de l'envoi groupé "Envoyer à
-# Randstad" (liste des missions -> agence d'intérim). Modifiable à l'envoi.
-RANDSTAD_EMAIL = env("RANDSTAD_EMAIL", "")
+# Formulations proposées pour le libellé d'un trajet « (pause) » dans le
+# formulaire de mission. Séparateur « | » plutôt que la virgule : un
+# libellé peut en contenir une (« Pause déjeuner, 45 min »). Le champ
+# reste libre — la liste ne fait qu'éviter de retaper les plus courantes.
+PAUSE_LABELS = [p.strip() for p in env(
+    "PAUSE_LABELS", "Pause + Attente Clients|Pause 15 min|Pause 30 min"
+).split("|") if p.strip()]
 
 # Client épinglé en tête du menu déroulant "Client" du formulaire de
 # mission (le reste de la liste est alphabétique).

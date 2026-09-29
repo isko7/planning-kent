@@ -56,6 +56,62 @@ function googleAvailable() {
   return !!(window.google && google.maps);
 }
 
+// Qui trace les itinéraires : Google Maps dans le navigateur, ou TomTom
+// côté serveur (/tournees/itineraire). Le choix vaut pour toute la page,
+// section Navettes comprise, et reste sur l'appareil.
+const PROVIDER_KEY = "kent.routeProvider";
+
+function providerSelects() {
+  return Array.from(document.querySelectorAll("[data-route-provider]"));
+}
+
+function routeProvider() {
+  const select = providerSelects()[0];
+  return select ? select.value : "google";
+}
+
+// Un réglage, un sélecteur par section : ils affichent toujours la même
+// chose, et le choix est gardé par l'appareil.
+function initRouteProvider() {
+  const selects = providerSelects();
+  if (!selects.length) return;
+  let saved = null;
+  try {
+    saved = localStorage.getItem(PROVIDER_KEY);
+  } catch (e) { /* rien de mémorisé */ }
+  if (saved && selects[0].querySelector(`option[value="${saved}"]:not([disabled])`)) {
+    selects.forEach((select) => { select.value = saved; });
+  }
+  selects.forEach((select) => {
+    select.addEventListener("change", () => {
+      selects.forEach((other) => { other.value = select.value; });
+      try {
+        localStorage.setItem(PROVIDER_KEY, select.value);
+      } catch (e) { /* tant pis */ }
+      // L'itinéraire affiché vient de l'autre fournisseur : il est à refaire.
+      if (computed) {
+        setStatus("Fournisseur changé : relancez le calcul de l'itinéraire.");
+        clearResult();
+      }
+    });
+  });
+}
+
+// Itinéraire TomTom d'une liste d'adresses, dans l'ordre : étapes (km,
+// durée) et tracé, calculés par le serveur.
+async function requestTomTom(stops) {
+  const body = new FormData();
+  stops.map(forGoogle).forEach((address) => body.append("address", address));
+  const resp = await fetch(page.dataset.routeUrl, { method: "POST", body });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.ok) {
+    if (data.failed_index != null) markInvalid(data.failed_index);
+    throw new Error(data.error || "Itinéraire TomTom indisponible.");
+  }
+  markInvalid(-1);
+  return data;
+}
+
 // --------------------------------------------------------------- la liste
 function rows() {
   return Array.from(listEl.children);
@@ -359,6 +415,38 @@ function drawGoogleRoute(result) {
   placeMarkers(positions);
 }
 
+// Tracé TomTom : la route telle qu'il la rend, plus les repères numérotés.
+function drawTomTomRoute(path, points) {
+  clearMap();
+  if (!map) return;
+  const bounds = new google.maps.LatLngBounds();
+  placeMarkers(points);
+  points.forEach((point) => bounds.extend(point));
+  straightLine = new google.maps.Polyline({
+    path, map, strokeColor: "#1d63d8", strokeOpacity: .85, strokeWeight: 5,
+  });
+  path.forEach((point) => bounds.extend(point));
+  if (points.length > 1) map.fitBounds(bounds, 48);
+}
+
+// Résultat TomTom : mêmes informations que celui de Google, à la source près.
+function showTomTomResult(data, stops) {
+  const km = data.legs.reduce((total, leg) => total + leg.km, 0);
+  const seconds = data.legs.reduce((total, leg) => total + leg.seconds, 0);
+  drawTomTomRoute(data.path, data.points);
+  setLegs(data.legs.map((leg) => `${formatKm(leg.km)} · ${formatDuration(leg.seconds)}`));
+  applyTimes(data.legs.map((leg) => leg.seconds));
+  setSummary([
+    summaryItem(formatKm(km), "par la route"),
+    summaryItem(formatDuration(seconds), "de conduite"),
+    summaryItem(stopCount(stops.length), ""),
+  ]);
+  setStatus("");
+  mapNote.textContent = "";  // le résultat parle de lui-même ; la note ne sert qu'en cas d'ennui
+  computed = true;
+  updateMapsLink();
+}
+
 // Repli : un repère numéroté par arrêt, reliés en pointillés — le trait ne
 // prétend pas suivre la route.
 function drawStraightRoute(points) {
@@ -517,7 +605,7 @@ function showGoogleResult(result, reordered) {
     summaryItem(stopCount(addresses().length), ""),
   ]);
   setStatus("");
-  mapNote.textContent = "Tracé et distances par la route (Google Maps), hors trafic.";
+  mapNote.textContent = "";
   computed = true;
   updateMapsLink();
 }
@@ -554,7 +642,14 @@ async function refreshRoute(approxData, refine) {
     setStatus("");
     return;
   }
-  if (googleAvailable() && !directionsRefused) {
+  if (routeProvider() === "tomtom") {
+    try {
+      showTomTomResult(await requestTomTom(stops), stops);
+      return;
+    } catch (e) {
+      mapNote.textContent = e.message + " La carte relie les arrêts en pointillés.";
+    }
+  } else if (googleAvailable() && !directionsRefused) {
     try {
       showGoogleResult(await requestDirections(stops, !!refine), !!refine);
       return;
@@ -733,6 +828,7 @@ function clearAll() {
 // ------------------------------------------------------------------- init
 document.addEventListener("DOMContentLoaded", () => {
   initMap();
+  initRouteProvider();
   restore();
 
   document.getElementById("tour-add").addEventListener("click", () => {

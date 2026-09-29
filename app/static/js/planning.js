@@ -263,6 +263,80 @@
     if (current() === "grid") scrollToToday();
   }
 
+  // ------------------------------------------- largeur des colonnes
+  // Chaque en-tête de jour porte une poignée : on tire pour élargir ou
+  // rétrécir sa colonne. Les trois rangées de la grille (jours, journée
+  // entière, heures) ont la même structure — la colonne n° i est le
+  // (i+1)ᵉ enfant de chacune, la gouttière occupant la première place.
+  // Rien n'est mémorisé : un rechargement ou un changement de semaine
+  // rend leurs largeurs égales. Double-clic sur une poignée : idem.
+  var MIN_COL = 48, MAX_COL = 900;
+
+  function columnCells(index) {
+    return Array.prototype.map.call(
+      document.querySelectorAll(".planning-grid__row"),
+      function (row) { return row.children[index + 1]; }
+    ).filter(Boolean);
+  }
+
+  // Au premier ajustement, toutes les colonnes passent de « flex: 1 » à
+  // leur largeur du moment : sans cela, élargir l'une rétrécirait les
+  // autres au lieu d'allonger la grille.
+  function freezeColumns(count) {
+    for (var i = 0; i < count; i++) {
+      var cells = columnCells(i);
+      if (!cells.length) continue;
+      var width = cells[0].getBoundingClientRect().width;
+      cells.forEach(function (cell) { cell.style.flex = "0 0 " + Math.round(width) + "px"; });
+    }
+  }
+
+  function resetColumns() {
+    document.querySelectorAll(".planning-grid__row").forEach(function (row) {
+      Array.prototype.slice.call(row.children, 1).forEach(function (cell) { cell.style.flex = ""; });
+    });
+  }
+
+  function initColumnResize() {
+    var grid = document.getElementById("planning-grid");
+    if (!grid) return;
+    var headers = grid.querySelectorAll(".planning-grid__daycol-header");
+
+    headers.forEach(function (header, index) {
+      var handle = document.createElement("div");
+      handle.className = "planning-grid__resize";
+      handle.title = "Tirer pour élargir ou rétrécir ce jour (double-clic : largeurs égales)";
+      handle.setAttribute("aria-hidden", "true");
+      header.appendChild(handle);
+
+      handle.addEventListener("dblclick", resetColumns);
+      handle.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        var cells = columnCells(index);
+        if (!cells.length) return;
+        freezeColumns(headers.length);
+        var startX = e.clientX;
+        var startWidth = cells[0].getBoundingClientRect().width;
+        grid.classList.add("is-resizing");
+        handle.setPointerCapture(e.pointerId);
+
+        function onMove(move) {
+          var width = Math.min(MAX_COL, Math.max(MIN_COL, startWidth + (move.clientX - startX)));
+          cells.forEach(function (cell) { cell.style.flex = "0 0 " + Math.round(width) + "px"; });
+        }
+        function onEnd() {
+          handle.removeEventListener("pointermove", onMove);
+          handle.removeEventListener("pointerup", onEnd);
+          handle.removeEventListener("pointercancel", onEnd);
+          grid.classList.remove("is-resizing");
+        }
+        handle.addEventListener("pointermove", onMove);
+        handle.addEventListener("pointerup", onEnd);
+        handle.addEventListener("pointercancel", onEnd);
+      });
+    });
+  }
+
   // Cale le défilement horizontal de la grille sur le jour courant.
   function scrollToToday() {
     var grid = document.getElementById("planning-grid");
@@ -273,6 +347,7 @@
   }
 
   renderGrid();
+  initColumnResize();
   initSharePanel();
   initViewToggle();
 })();

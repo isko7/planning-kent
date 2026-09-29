@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Nouveau partenaire' if is_new else 'Modifier le partenaire' }}{% endblock %}
+{% block content %}
+  <div class="page-head">
+    <h1>{{ 'Nouveau partenaire' if is_new else partner.name }}</h1>
+  </div>
+
+  <form method="post" class="card">
+    <div class="form-grid form-grid--3">
+      <div class="field">
+        <label>Nom *</label>
+        <input type="text" name="name" value="{{ partner.name or '' }}" placeholder="Randstad" required>
+      </div>
+      <div class="field">
+        <label>Téléphone</label>
+        <input type="tel" name="phone" value="{{ partner.phone or '' }}">
+      </div>
+      <div class="field">
+        <label>Ordre d'affichage</label>
+        <input type="number" name="position" min="0" step="1" value="{{ partner.position or 0 }}">
+        <div class="hint">Le plus petit en premier dans le menu « Intérim ».</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Email *</label>
+      <input type="email" name="email" value="{{ partner.email or '' }}" required>
+      <div class="hint">Destinataire de l'envoi groupé « Envoyer à l'intérim » — il reste modifiable avant chaque envoi.</div>
+    </div>
+
+    <fieldset class="access-block">
+      <legend>Modèle d'email</legend>
+      <div class="hint" style="margin-bottom:12px;">
+        Utilisé comme point de départ à l'envoi groupé — l'objet et le message
+        restent modifiables avant chaque envoi. Marqueurs remplacés
+        automatiquement :
+        {% for f in placeholders %}<code>{{ f }}</code>{{ ', ' if not loop.last }}{% endfor %}
+        (respectivement les chauffeurs concernés, le récapitulatif des dates et
+        horaires, et le nom de l'entreprise).
+      </div>
+      <div class="field">
+        <label>Objet</label>
+        <input type="text" name="email_subject" value="{{ partner.email_subject or '' }}">
+      </div>
+      <div class="field">
+        <label>Message</label>
+        <textarea name="email_body" rows="14">{{ partner.email_body or '' }}</textarea>
+      </div>
+    </fieldset>
+
+    <div class="btn-row">
+      <button type="submit" class="btn btn--primary">Enregistrer</button>
+      <a href="{{ url_for('partners.list_partners_view') }}" class="btn btn--secondary">Annuler</a>
+    </div>
+  </form>
+{% endblock %}

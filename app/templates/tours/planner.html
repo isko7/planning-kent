@@ -15,6 +15,8 @@
        data-optimize-url="{{ url_for('tours.optimize_tour') }}"
        data-address-provider="{{ address_search_provider }}"
        data-depot-address="{{ depot_address }}"
+       data-route-url="{{ url_for('tours.route_view') }}"
+       data-has-tomtom="{{ '1' if tomtom_enabled else '' }}"
        data-max-stops="{{ max_stops }}">
 
     <div class="card">
@@ -67,6 +69,18 @@
          dans Google Maps » et « Copier la liste » n'apparaissent qu'une fois
          l'itinéraire calculé. #}
       <div class="btn-row tour-actions">
+        {# Qui calcule les itinéraires, ici comme dans la section Navettes.
+           Google le fait dans le navigateur, TomTom côté serveur (sa clé n'a
+           rien à faire ici). Un même réglage, un sélecteur par section pour
+           ne pas avoir à remonter la page ; le choix est gardé par
+           l'appareil (tours.js:initRouteProvider). #}
+        <label class="route-provider">
+          <span>Itinéraires</span>
+          <select data-route-provider>
+            <option value="google">Google Maps</option>
+            <option value="tomtom"{{ ' disabled' if not tomtom_enabled }}>TomTom{{ '' if tomtom_enabled else ' (clé absente)' }}</option>
+          </select>
+        </label>
         <button type="button" class="btn btn--secondary" id="tour-trace"
                 title="Trace l'itinéraire dans l'ordre affiché, sans y toucher">Calculer l'itinéraire</button>
         <button type="button" class="btn btn--primary" id="tour-optimize"
@@ -93,6 +107,83 @@
       <div class="tour-map" id="tour-map"></div>
       <div class="hint" id="tour-map-note" style="margin-top:10px;"></div>
     </div>
+
+    {# ----------------------------------------------------------- navettes #}
+    {# Section autonome : ses propres adresses, sa propre destination, ses
+       propres réglages. Elle ne partage rien avec l'itinéraire du haut. #}
+    <div class="card" id="shuttle-card"
+         data-url="{{ url_for('tours.plan_shuttles_view') }}">
+      <h2>Navettes — répartition automatique</h2>
+      <p class="hint">Des points de ramassage avec leur nombre de voyageurs et une destination
+        commune. Dans l'ordre : <strong>remplir les navettes au maximum</strong>, donc en avoir
+        <strong>le moins possible</strong>, et seulement ensuite raccourcir les trajets — chacune
+        suivant alors l'ordre de passage le plus court jusqu'à la destination. Sans rapport avec
+        l'itinéraire ci-dessus.</p>
+
+      <ol class="shuttle-list" id="shuttle-list"></ol>
+      <template id="shuttle-stop-template">
+        <li class="shuttle-stop">
+          <span class="shuttle-stop__rank" aria-hidden="true"></span>
+          <div class="shuttle-stop__field">
+            <div class="tour-stop__input">
+              <input type="text" class="shuttle-stop__address" autocomplete="off" spellcheck="false"
+                     placeholder="Adresse de ramassage" aria-label="Adresse de ramassage">
+            </div>
+          </div>
+          <input type="number" class="shuttle-stop__pax" min="1" max="99" step="1" value="1"
+                 aria-label="Nombre de voyageurs" title="Nombre de voyageurs à cet arrêt">
+          <button type="button" class="row-remove" title="Supprimer cet arrêt">&times;</button>
+        </li>
+      </template>
+      <div class="btn-row" style="margin-top:4px;">
+        <button type="button" class="btn btn--secondary btn--sm" id="shuttle-add">+ Ajouter une adresse</button>
+      </div>
+
+      <div class="form-grid shuttle-params">
+        <div class="field" data-address-provider="{{ address_search_provider }}">
+          <label>Destination finale</label>
+          <div class="addr-field">
+            <input type="text" id="shuttle-destination" autocomplete="off" spellcheck="false"
+                   placeholder="Aéroport Paris-Charles de Gaulle, Terminal 2E">
+          </div>
+        </div>
+        <div class="field">
+          <label>Heure d'arrivée</label>
+          <input type="text" id="shuttle-arrival" inputmode="numeric" maxlength="5"
+                 placeholder="10h30" autocomplete="off">
+          <div class="hint">Toutes les navettes y arrivent à cette heure ; les heures de
+            ramassage en découlent.</div>
+        </div>
+      </div>
+
+      <div class="form-grid shuttle-params">
+        <div class="field">
+          <label>Nombre de navettes</label>
+          <input type="number" id="shuttle-count" min="1" max="30" step="1" placeholder="au plus">
+          <div class="hint">Vide : autant qu'il en faut, pas une de plus.</div>
+        </div>
+        <div class="field">
+          <label>Sièges max / navette</label>
+          <input type="number" id="shuttle-seats" min="1" max="99" step="1" value="8">
+        </div>
+      </div>
+
+      <div class="btn-row tour-actions">
+        <label class="route-provider">
+          <span>Itinéraires</span>
+          <select data-route-provider>
+            <option value="google">Google Maps</option>
+            <option value="tomtom"{{ ' disabled' if not tomtom_enabled }}>TomTom{{ '' if tomtom_enabled else ' (clé absente)' }}</option>
+          </select>
+        </label>
+        <button type="button" class="btn btn--primary" id="shuttle-run">⚡ Calculer les navettes</button>
+        <button type="button" class="btn btn--ghost" id="shuttle-clear">Vider la liste</button>
+      </div>
+      <div class="tour-status" id="shuttle-status" hidden></div>
+      <div id="shuttle-results"></div>
+      <div class="tour-map" id="shuttle-map" hidden></div>
+      <div class="hint" id="shuttle-map-note" style="margin-top:10px;"></div>
+    </div>
   </div>
 
   {% if google_maps_api_key %}
@@ -102,4 +193,5 @@
   {% endif %}
   <script src="{{ url_for('static', filename='js/address_autocomplete.js') }}"></script>
   <script src="{{ url_for('static', filename='js/tours.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/shuttles.js') }}"></script>
 {% endblock %}

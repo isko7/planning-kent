@@ -7,6 +7,27 @@ from datetime import date, datetime, timedelta
 # routing.py lui substitue celle de l'entreprise (COMPANY_* du .env).
 DEPOT_LABEL = "Dépôt KENT"
 
+# Modele d'email de l'envoi groupe a une agence d'interim (bouton « Envoyer
+# a l'interim » de la liste des missions). Chaque agence en garde une copie
+# modifiable dans sa fiche Partenaire ; ces valeurs ne servent que de point
+# de depart (nouvelle base, ou champ laisse vide). Trois marqueurs sont
+# remplaces au moment de l'envoi (voir missions.py:_bulk_email_defaults) :
+#   {noms}     les chauffeurs concernes : « DUPONT Jean + MARTIN Paul »
+#   {missions} le recapitulatif date / horaires, groupe par chauffeur
+#   {societe}  le nom de l'entreprise (COMPANY du .env)
+PARTNER_EMAIL_FIELDS = ["{noms}", "{missions}", "{societe}"]
+DEFAULT_PARTNER_EMAIL_SUBJECT = "Missions pour {noms}"
+DEFAULT_PARTNER_EMAIL_BODY = """Bonjour,
+
+Veuillez trouver ci-joint des missions pour {noms} :
+
+{missions}
+
+Vous en souhaitant bonne réception.
+
+Cordialement,
+{societe}"""
+
 WEEKDAYS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 MONTHS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
              "août", "septembre", "octobre", "novembre", "décembre"]

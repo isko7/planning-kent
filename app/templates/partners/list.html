@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Partenaires{% endblock %}
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h1>Partenaires</h1>
+      <div class="sub">{{ partners|length }} agence{{ 's' if partners|length != 1 }} d'intérim</div>
+    </div>
+    <a href="{{ url_for('partners.new_partner') }}" class="btn btn--primary">+ Nouveau partenaire</a>
+  </div>
+
+  <div class="card" style="padding:0;">
+    {% if partners %}
+    <table class="data-table">
+      <thead>
+        <tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Personnel rattaché</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for p in partners %}
+        <tr>
+          <td><a href="{{ url_for('partners.edit_partner', partner_id=p.id) }}"><strong>{{ p.name }}</strong></a></td>
+          <td>{{ p.email or '—' }}</td>
+          <td>{{ p.phone or '—' }}</td>
+          <td>
+            {% if counts[p.id] %}{{ counts[p.id] }} personne{{ 's' if counts[p.id] != 1 }}
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td class="row-actions">
+            <a href="{{ url_for('partners.edit_partner', partner_id=p.id) }}" class="btn btn--ghost btn--sm">Modifier</a>
+            <form method="post" action="{{ url_for('partners.delete_partner', partner_id=p.id) }}" style="display:inline"
+                  onsubmit="return confirm({{ ('Supprimer ce partenaire ?' if not counts[p.id] else 'Supprimer ce partenaire ? ' ~ counts[p.id] ~ ' fiche(s) Personnel perdront leur intérim.') | tojson }});">
+              <button type="submit" class="btn btn--ghost btn--sm" style="color:var(--err-text)">Supprimer</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div>Aucun partenaire pour le moment.</div>
+      <a href="{{ url_for('partners.new_partner') }}" class="btn btn--primary">Ajouter le premier partenaire</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="hint" style="margin-top:12px;">
+    L'agence choisie sur une fiche Personnel fournit le destinataire et le modèle
+    d'email du bouton « Envoyer à l'intérim » de la liste des ordres de mission.
+  </div>
+{% endblock %}

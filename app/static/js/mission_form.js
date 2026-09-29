@@ -30,6 +30,48 @@ function moveRow(button, dir) {
   }
 }
 
+// Glisser-déposer d'une ligne de trajet, par sa poignée. Événements
+// *pointer* et non l'API drag-and-drop HTML5 : celle-ci ne se déclenche pas
+// au doigt. Le pointeur est capturé par le tableau, qui ne bouge pas —
+// déplacer la ligne dans le DOM relâcherait la capture de la poignée, et le
+// geste s'arrêterait au premier mouvement. L'ordre du DOM est l'ordre
+// enregistré : rien à faire côté serveur.
+function startRowDrag(grip, event) {
+  const row = grip.closest("tr");
+  const body = row.parentNode;
+  const from = Array.from(body.children).indexOf(row);
+  event.preventDefault();
+  row.classList.add("is-dragging");
+  body.setPointerCapture(event.pointerId);
+
+  function onMove(moveEvent) {
+    const y = moveEvent.clientY;
+    // Première ligne dont on n'a pas atteint le milieu : c'est devant elle
+    // que la ligne glissée vient se placer (à la fin si on est sous toutes).
+    const target = Array.from(body.children).find((other) => {
+      if (other === row) return false;
+      const box = other.getBoundingClientRect();
+      return y < box.top + box.height / 2;
+    });
+    if (target === row.nextElementSibling || (!target && !row.nextElementSibling)) return;
+    body.insertBefore(row, target || null);
+  }
+
+  function onEnd() {
+    body.removeEventListener("pointermove", onMove);
+    body.removeEventListener("pointerup", onEnd);
+    body.removeEventListener("pointercancel", onEnd);
+    body.removeEventListener("lostpointercapture", onEnd);
+    row.classList.remove("is-dragging");
+    if (Array.from(body.children).indexOf(row) !== from) scheduleLegsSummaryUpdate();
+  }
+
+  body.addEventListener("pointermove", onMove);
+  body.addEventListener("pointerup", onEnd);
+  body.addEventListener("pointercancel", onEnd);
+  body.addEventListener("lostpointercapture", onEnd);
+}
+
 function fillLegRow(tr, start, end, vehicleId, label) {
   tr.querySelector('[name="leg_start_time[]"]').value = start || "";
   tr.querySelector('[name="leg_end_time[]"]').value = end || "";
@@ -43,6 +85,41 @@ function defaultVehicleValue() {
   return sel ? sel.value : "";
 }
 
+// Valeurs du menu véhicule qui ne désignent pas un véhicule : une pause et
+// un relais ne roulent pas, et « Appliquer à toutes les lignes » les laisse
+// tels quels. La valeur vide, elle, ne veut dire que « pas encore choisi »
+// — une ligne qu'on vient d'ajouter, justement à remplir.
+const NON_DRIVING_VEHICLES = ["pause", "relais"];
+
+// Bascule « prix affiché / masqué » du formulaire. Le bouton ne fait que
+// retourner un champ caché, enregistré avec la mission : même réglage que
+// le bouton de la fiche, mais ici la mission peut ne pas encore exister.
+function initPriceVisibility() {
+  const input = document.getElementById("price-hidden");
+  const btn = document.getElementById("price-visibility");
+  const hint = document.getElementById("price-visibility-hint");
+  if (!input || !btn) return;
+
+  function render() {
+    const masque = input.value === "1";
+    btn.textContent = masque ? "🚫 Masqué" : "👁 Affiché";
+    btn.title = masque
+      ? "Le prix n'apparaîtra pas sur le PDF, ni pour les chauffeurs. Cliquez pour l'afficher."
+      : "Le prix apparaîtra sur le PDF. Cliquez pour le masquer.";
+    if (hint) {
+      hint.textContent = masque
+        ? "Absent du PDF et invisible pour les chauffeurs ; les administrateurs le voient toujours ici."
+        : "Imprimé sur le Billet Collectif.";
+    }
+  }
+
+  btn.addEventListener("click", () => {
+    input.value = input.value === "1" ? "0" : "1";
+    render();
+  });
+  render();
+}
+
 function applyVehicleToAllLegs() {
   const v = defaultVehicleValue();
   if (!v) {
@@ -50,7 +127,9 @@ function applyVehicleToAllLegs() {
     return;
   }
   document.querySelectorAll('#legs-body select[name="leg_vehicle_id[]"]').forEach((sel) => {
-    if (sel.value !== "relais") { sel.value = v; toggleRelayDriver(sel); }
+    if (NON_DRIVING_VEHICLES.includes(sel.value)) return;
+    sel.value = v;
+    toggleRelayDriver(sel);
   });
 }
 
@@ -62,6 +141,43 @@ function relayText(option) {
   const tel = (option.dataset.tel || "").trim();
   const who = [fn, ln].filter(Boolean).join(" ");
   return "Relais avec " + who + (tel ? " (" + tel + ")" : "");
+}
+
+// Trajet « (pause) » : le libellé se choisit dans une courte liste, ou
+// s'écrit librement. Les formulations viennent de PAUSE_LABELS (.env) et
+// sont rendues dans <datalist id="pause-labels"> ; on les lit là plutôt
+// que de les redéclarer ici, pour n'avoir qu'une source. Liste vide =
+// champ libre ordinaire.
+let pauseLabelsCache = null;
+
+function pauseLabels() {
+  if (pauseLabelsCache === null) {
+    const list = document.getElementById("pause-labels");
+    pauseLabelsCache = list
+      ? Array.prototype.map.call(list.options, (o) => o.value).filter(Boolean)
+      : [];
+  }
+  return pauseLabelsCache;
+}
+
+function togglePauseLabel(vehicleSel) {
+  const tr = vehicleSel.closest("tr");
+  const label = tr.querySelector('[name="leg_label[]"]');
+  if (!label) return;
+  const labels = pauseLabels();
+  if (vehicleSel.value === "pause") {
+    if (!labels.length) return;
+    label.setAttribute("list", "pause-labels");
+    label.placeholder = labels[0];
+    // Ligne neuve : la formulation la plus courante, à changer d'un clic.
+    if (!label.value.trim()) label.value = labels[0];
+  } else if (label.hasAttribute("list")) {
+    label.removeAttribute("list");
+    label.placeholder = "";
+    // On n'efface que ce que la liste avait posé : un libellé écrit à la
+    // main reste, même si le véhicule change.
+    if (labels.includes(label.value.trim())) label.value = "";
+  }
 }
 
 // Affiche / masque le sélecteur de chauffeur de relais selon le véhicule.
@@ -418,7 +534,7 @@ function updateLegsTimeSummary() {
       lastEnd = end;
     }
     const vSel = tr.querySelector('[name="leg_vehicle_id[]"]');
-    const isDriving = vSel && vSel.value && vSel.value !== "relais";
+    const isDriving = vSel && vSel.value && !NON_DRIVING_VEHICLES.includes(vSel.value);
     if (isDriving && start != null && end != null) {
       drivingMinutes += minutesBetween(start, end);
     }
@@ -925,8 +1041,17 @@ document.addEventListener("DOMContentLoaded", () => {
     scheduleLegsSummaryUpdate();
   });
 
+  initPriceVisibility();
   initNewClient();
   initSaveAndReturn();
+
+  const legsBody = document.getElementById("legs-body");
+  if (legsBody) {
+    legsBody.addEventListener("pointerdown", (e) => {
+      const grip = e.target.closest(".row-grip");
+      if (grip) startRowDrag(grip, e);
+    });
+  }
   initBcClient();
   initEmissionDatePreview();
   initAddressProviderToggle();
@@ -940,14 +1065,23 @@ document.addEventListener("DOMContentLoaded", () => {
       rd.hidden = false;
       if (rd.value) tr.dataset.relayText = relayText(rd.selectedOptions[0]);
     }
+    // Pauses déjà enregistrées : leur libellé retrouve sa liste, sans être
+    // réécrit (d'où le passage par l'attribut plutôt que par togglePause).
+    if (v && v.value === "pause" && pauseLabels().length) {
+      const label = tr.querySelector('[name="leg_label[]"]');
+      if (label) {
+        label.setAttribute("list", "pause-labels");
+        label.placeholder = pauseLabels()[0];
+      }
+    }
   });
 
   document.body.addEventListener("click", (e) => {
     if (e.target.matches(".row-remove")) {
       removeRow(e.target);
       scheduleLegsSummaryUpdate();
-    } else if (e.target.matches(".row-up")) moveRow(e.target, -1);
-    else if (e.target.matches(".row-down")) moveRow(e.target, 1);
+    } else if (e.target.matches(".row-up")) { moveRow(e.target, -1); scheduleLegsSummaryUpdate(); }
+    else if (e.target.matches(".row-down")) { moveRow(e.target, 1); scheduleLegsSummaryUpdate(); }
     else if (e.target.matches(".estimate-leg")) estimateLeg(e.target);
     else if (!e.target.closest(".addr-suggestions")) closeSuggestions();
   });
@@ -973,6 +1107,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.body.addEventListener("change", (e) => {
     if (e.target.matches(".leg-vehicle")) {
       toggleRelayDriver(e.target);
+      togglePauseLabel(e.target);
       scheduleLegsSummaryUpdate();
     } else if (e.target.matches(".relay-driver")) onRelayDriverChange(e.target);
   });

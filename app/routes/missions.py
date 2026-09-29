@@ -7,15 +7,17 @@ from werkzeug.utils import secure_filename
 
 from app import repo
 from app.auth import current_user, is_admin, wants_json
-from app.config import COMPANY, RANDSTAD_EMAIL, GOOGLE_MAPS_API_KEY
+from app.config import COMPANY, GOOGLE_MAPS_API_KEY, PAUSE_LABELS
 from app.pdf_service import (
     generate_mission_pdf, generate_bc_pdf, extract_pdf_pages, PdfGenerationError,
     POSITION_BEFORE_OM, POSITION_AFTER_OM, POSITION_AFTER_BC,
 )
-from app.email_service import send_mission_email, send_bulk_email, EmailError
+from app.email_service import (send_mission_email, send_bulk_email,
+                               send_followup_email, EmailError)
 from app.routing import estimate_route, format_duration, add_minutes, build_driver_itinerary_url, RoutingError
 from app.routes.settings import get_address_search_provider
 from app.utils import (
+    DEFAULT_PARTNER_EMAIL_BODY, DEFAULT_PARTNER_EMAIL_SUBJECT,
     balance_passenger_counts, day_label, fmt_date_full, fmt_date_long, fmt_date_short,
     fmt_hours_minutes, fmt_time, is_valid_time, legs_distance_summary, legs_time_summary,
     normalize_time, now_paris, service_time_range, shuttle_number,
@@ -127,6 +129,10 @@ def _mission_form_to_data(form):
         "bc_client_phone": form.get("bc_client_phone", "").strip() or None,
         "emission_date": form.get("emission_date") or None,
         "price": form.get("price", "").strip() or None,
+        # Bascule « Masquer le prix » : un champ caché piloté par le bouton
+        # du formulaire (mission_form.js:initPriceVisibility), pour que le
+        # réglage soit le même qu'au bouton de la fiche.
+        "price_hidden": form.get("price_hidden") == "1",
         "status": form.get("status") or "brouillon",
         "om_template_id": int(form["om_template_id"]) if form.get("om_template_id") else None,
         "bc_template_id": int(form["bc_template_id"]) if form.get("bc_template_id") else None,
@@ -182,6 +188,7 @@ def _form_context(mission=None):
         "google_maps_api_key": GOOGLE_MAPS_API_KEY,
         "address_search_provider": get_address_search_provider(),
         "depot_address": f"{COMPANY['address']}, {COMPANY['postal_code']} {COMPANY['city']}",
+        "pause_labels": PAUSE_LABELS,
     }
 
 
@@ -208,22 +215,29 @@ def list_missions_view():
     date_to = request.args.get("date_to") or None
     status = request.args.get("status") or None
     name = request.args.get("name", "").strip() or None
-    tab = "past" if request.args.get("tab") == "past" else "current"
+    tab = request.args.get("tab")
+    tab = tab if tab in ("past", "archived") else "current"
 
     # L'onglet pose une borne de date automatique, combinée (ET) avec les
     # bornes saisies dans les filtres : c'est la plus restrictive qui gagne.
     # La journée en cours appartient aux deux onglets : c'est l'heure de fin
     # de service qui tranche, mission par mission (repo._service_cutoff).
+    # L'onglet Archivées, lui, ne borne rien : une mission archivée s'y
+    # retrouve quelle que soit sa date.
     now = now_paris()
     today = now.date().isoformat()
-    cutoff = (tab, today, now.strftime("%H:%M"))
-    if tab == "past":
+    if tab == "archived":
+        eff_from, eff_to, cutoff = date_from, date_to, None
+    elif tab == "past":
         eff_from, eff_to = date_from, min(date_to, today) if date_to else today
+        cutoff = (tab, today, now.strftime("%H:%M"))
     else:
         eff_from, eff_to = (max(date_from, today) if date_from else today), date_to
+        cutoff = (tab, today, now.strftime("%H:%M"))
 
     criteria = dict(driver_id=driver_id, date_from=eff_from, date_to=eff_to,
-                    status=status, name=name, service_cutoff=cutoff)
+                    status=status, name=name, service_cutoff=cutoff,
+                    archived=(tab == "archived"))
     total = repo.count_missions(**criteria)
     total_pages = max(1, -(-total // PER_PAGE))  # division entière arrondie au supérieur
     page = min(max(request.args.get("page", type=int) or 1, 1), total_pages)
@@ -717,10 +731,79 @@ def _driver_email_defaults(mission):
     return subject, body
 
 
-def _bulk_email_defaults(missions):
+def _partner_of(mission, cache):
+    """Agence d'intérim du chauffeur d'une mission, ou None. `cache` évite
+    de relire la même agence pour chaque mission. Une agence effacée entre
+    temps est traitée comme « pas d'intérim »."""
+    partner_id = (mission["driver"] or {}).get("partner_id")
+    if not partner_id:
+        return None
+    if partner_id not in cache:
+        cache[partner_id] = repo.get_partner(partner_id)
+    return cache[partner_id]
+
+
+def _bulk_groups(missions):
+    """Missions regroupées par agence d'intérim, dans l'ordre d'apparition
+    — un groupe = un email, avec uniquement ses propres missions en pièces
+    jointes. Les missions dont le chauffeur n'a pas d'intérim forment un
+    groupe de clé 0, sans destinataire pré-rempli."""
+    cache, order, par_agence = {}, [], {}
+    for m in missions:
+        partner = _partner_of(m, cache)
+        key = partner["id"] if partner else 0
+        if key not in par_agence:
+            par_agence[key] = {"key": key, "partner": partner, "missions": []}
+            order.append(key)
+        par_agence[key]["missions"].append(m)
+
+    groups = []
+    for key in order:
+        g = par_agence[key]
+        subject, body = _bulk_email_defaults(g["missions"], g["partner"])
+        g.update({"to": (g["partner"] or {}).get("email") or "", "cc": "",
+                  "subject": subject, "body": body})
+        groups.append(g)
+    return groups
+
+
+def _groups_from_form(missions, form):
+    """Reconstruit les groupes avec ce qui a été saisi, pour ré-afficher la
+    page sans perdre les modifications quand un envoi échoue."""
+    par_id = {m["id"]: m for m in missions}
+    groups = []
+    for key in form.getlist("group_keys", type=int):
+        ids = form.getlist(f"mission_ids_{key}", type=int)
+        partner = repo.get_partner(key) if key else None
+        groups.append({
+            "key": key, "partner": partner,
+            "missions": [par_id[i] for i in ids if i in par_id],
+            "to": form.get(f"to_{key}", ""), "cc": form.get(f"cc_{key}", ""),
+            "subject": form.get(f"subject_{key}", ""), "body": form.get(f"body_{key}", ""),
+        })
+    return groups
+
+
+def _addresses(raw):
+    return [e.strip() for e in (raw or "").split(",") if e.strip()]
+
+
+def _fill_partner_template(text, names, missions_block):
+    """Remplace les marqueurs du modèle d'une agence. `str.replace` et non
+    `str.format` : le modèle est saisi à la main, une accolade isolée ne
+    doit pas faire échouer l'envoi."""
+    return ((text or "")
+            .replace(chr(13) + chr(10), chr(10))
+            .replace("{noms}", names)
+            .replace("{missions}", missions_block)
+            .replace("{societe}", COMPANY["name"]))
+
+
+def _bulk_email_defaults(missions, partner=None):
     """Regroupe les missions sélectionnées par chauffeur (ordre
     d'apparition), trie les dates de chacun, et construit l'objet/corps
-    par défaut du bouton « Envoyer à Randstad »."""
+    par défaut du bouton « Envoyer à l'intérim ». `partner` = l'agence dont
+    on applique le modèle ; sans elle, le modèle d'origine (utils.py)."""
     order = []
     groups = {}
     for m in missions:
@@ -735,69 +818,210 @@ def _bulk_email_defaults(missions):
     for key in groups:
         groups[key]["rows"].sort(key=lambda r: r[0])
 
-    names = [groups[k]["name"] for k in order]
-    subject = "Missions pour " + " + ".join(names)
+    names = " + ".join(groups[k]["name"] for k in order)
 
-    lines = ["Bonjour,", "", f"Veuillez trouver ci-joint des missions pour {' + '.join(names)} :", ""]
+    blocks = []
     for key in order:
         g = groups[key]
-        lines.append(f"{g['name']} :")
-        lines.append("")
+        lines = [f"{g['name']} :", ""]
         for mission_date, time_range in g["rows"]:
             row = fmt_date_short(mission_date)
             if time_range:
                 row += f" : {time_range}"
             lines.append(row)
-        lines.append("")
-    lines += [
-        "Vous en souhaitant bonne réception.",
-        "",
-        "Cordialement,",
-        COMPANY["name"],
-    ]
-    return subject, "\n".join(lines)
+        blocks.append("\n".join(lines))
+    missions_block = "\n\n".join(blocks)
+
+    partner = partner or {}
+    subject = partner.get("email_subject") or DEFAULT_PARTNER_EMAIL_SUBJECT
+    body = partner.get("email_body") or DEFAULT_PARTNER_EMAIL_BODY
+    return (_fill_partner_template(subject, names, missions_block),
+            _fill_partner_template(body, names, missions_block))
 
 
 @bp.route("/envoi-groupe", methods=["GET", "POST"])
 def bulk_email():
-    """Sélection multiple sur la liste des missions -> bouton "Envoyer à
-    Randstad" : un email avec un PDF (Ordre de Mission) par mission en pièce jointe."""
+    """Sélection multiple sur la liste des missions -> bouton « Envoyer à
+    l'intérim ». Les missions sont regroupées par agence d'intérim (celle de
+    la fiche Personnel de leur chauffeur) : **un email par agence**, avec
+    seulement ses propres missions en pièces jointes (un PDF par mission).
+    Destinataire et modèle viennent de la fiche de l'agence (écran
+    Partenaires), et restent modifiables avant l'envoi."""
     ids = (request.form if request.method == "POST" else request.args).getlist("mission_ids", type=int)
     missions = [m for m in (repo.get_mission(i) for i in ids) if m]
     if not missions:
         flash("Sélectionnez au moins un ordre de mission.", "error")
         return redirect(url_for("missions.list_missions_view"))
 
-    if request.method == "POST":
-        to_list = [e.strip() for e in request.form.get("to", "").split(",") if e.strip()]
-        cc_list = [e.strip() for e in request.form.get("cc", "").split(",") if e.strip()]
-        subject = request.form.get("subject", "").strip()
-        body = request.form.get("body", "")
-        if not to_list or not subject:
-            flash("Au moins un destinataire et un objet sont requis.", "error")
-            return redirect(url_for("missions.bulk_email", mission_ids=ids))
-        try:
-            attachments = [generate_mission_pdf(m["id"]) for m in missions]
-            send_bulk_email(ids, to_list, cc_list, subject, body, attachments)
-        except (PdfGenerationError, EmailError) as e:
-            flash(f"Échec de l'envoi : {e}", "error")
-            return redirect(url_for("missions.bulk_email", mission_ids=ids))
-        for m in missions:
-            repo.mark_sent_randstad(m["id"])
-        flash(f"{len(missions)} ordre(s) de mission envoyé(s) à {', '.join(to_list)}.", "success")
+    # Même règle que le bouton de la liste, qui se désactive dans ce cas :
+    # sans agence sur la fiche du chauffeur, l'envoi n'a pas de
+    # destinataire. Contrôlé ici aussi, l'URL étant atteignable à la main.
+    orphelines = [m for m in missions if not (m["driver"] or {}).get("partner_id")]
+    if orphelines:
+        noms = ", ".join(m.get("mission_name") or m["reference"] for m in orphelines)
+        flash(f"Pas d'intérim sur la fiche du chauffeur pour : {noms}. "
+              "Renseignez-le dans Ressources → Personnel, ou retirez ces missions "
+              "de la sélection.", "error")
         return redirect(url_for("missions.list_missions_view"))
 
-    subject, body = _bulk_email_defaults(missions)
-    return render_template(
-        "missions/bulk_email.html", missions=missions, mission_ids=ids,
-        default_to=RANDSTAD_EMAIL, default_subject=subject, default_body=body,
+    def page(groups):
+        return render_template("missions/bulk_email.html", missions=missions,
+                               mission_ids=ids, groups=groups)
+
+    if request.method != "POST":
+        return page(_bulk_groups(missions))
+
+    groups = _groups_from_form(missions, request.form)
+    incomplets = [g for g in groups if not _addresses(g["to"]) or not g["subject"].strip()]
+    if incomplets:
+        for g in incomplets:
+            nom = g["partner"]["name"] if g["partner"] else "les missions sans intérim"
+            flash(f"Destinataire et objet sont requis pour {nom}.", "error")
+        return page(groups)
+
+    # Chaque agence est envoyée indépendamment : l'échec de l'une ne prive
+    # pas les autres de leur email, et seules les missions réellement
+    # parties sont marquées comme envoyées.
+    envoyes, echecs = [], []
+    for g in groups:
+        group_ids = [m["id"] for m in g["missions"]]
+        nom = g["partner"]["name"] if g["partner"] else "sans intérim"
+        to_list = _addresses(g["to"])
+        try:
+            attachments = [generate_mission_pdf(m["id"]) for m in g["missions"]]
+            send_bulk_email(group_ids, to_list, _addresses(g["cc"]),
+                            g["subject"].strip(),
+                            g["body"].replace(chr(13) + chr(10), chr(10)), attachments)
+        except (PdfGenerationError, EmailError) as e:
+            echecs.append(f"{nom} : {e}")
+            continue
+        for mission_id in group_ids:
+            repo.mark_sent_randstad(mission_id)
+        envoyes.append(f"{nom} → {', '.join(to_list)} "
+                       f"({len(group_ids)} OM)")
+
+    if envoyes:
+        flash(f"{len(envoyes)} email(s) envoyé(s) : {' ; '.join(envoyes)}.", "success")
+    if echecs:
+        flash(f"Échec de l'envoi : {' ; '.join(echecs)}.", "error")
+        return page(groups)
+    return redirect(url_for("missions.list_missions_view"))
+
+
+def _reply_subject(subject):
+    """« Re: » en tête de l'objet, sans l'empiler si l'objet en porte déjà
+    un : c'est ce que les clients de messagerie attendent pour rattacher
+    deux messages au même fil."""
+    subject = (subject or "").strip()
+    return subject if subject[:3].lower() == "re:" else f"Re: {subject}"
+
+
+@bp.route("/<int:mission_id>/envoyer-itineraire", methods=["POST"])
+def send_itinerary(mission_id):
+    """Bouton « Envoyer l'itinéraire » de la fiche mission, proposé dès que
+    l'ordre de mission est parti chez le chauffeur. Envoie le lien Google
+    Maps de la mission en réponse à cet email-là (même objet précédé de
+    « Re: », et In-Reply-To quand le mode d'envoi le permet — voir
+    email_service) pour que le chauffeur retrouve les deux au même endroit.
+
+    Indépendant de la case « Envoyer l'itinéraire » de la fiche du
+    chauffeur : celle-ci ne décide que de la ligne ajoutée d'office à
+    l'email d'ordre de mission."""
+    mission = repo.get_mission(mission_id)
+    if not mission:
+        abort(404)
+    retour = redirect(_detail_url(mission_id))
+
+    if not mission.get("sent_driver_at"):
+        flash("L'ordre de mission n'a pas encore été envoyé au chauffeur : "
+              "envoyez-le d'abord, l'itinéraire viendra en réponse.", "error")
+        return retour
+
+    driver = mission["driver"]
+    to = (driver.get("email") or "").strip()
+    if not to:
+        flash(f"{driver['last_name']} {driver['first_name']} n'a pas d'email sur sa fiche.", "error")
+        return retour
+
+    itinerary_url = build_driver_itinerary_url(mission.get("legs") or [])
+    if not itinerary_url:
+        flash("Pas d'itinéraire exploitable : il faut au moins deux lieux de conduite "
+              "dans les trajets de la mission.", "error")
+        return retour
+
+    # Objet repris de l'email réellement parti au chauffeur, pour tomber
+    # dans le même fil ; à défaut (journal purgé), celui qu'on aurait mis.
+    previous = repo.last_email_to(mission_id, to)
+    base_subject = (previous or {}).get("subject") or _driver_email_defaults(mission)[0]
+    label = fmt_date_full(mission["mission_date"])
+    body = (
+        f"Bonjour {driver['first_name']},\n\n"
+        f"Voici l'itinéraire de votre mission du {label}.\n\n"
+        f"Itinéraire : {itinerary_url}\n\n"
+        f"Cordialement,\n{COMPANY['name']}"
     )
+    try:
+        send_followup_email(
+            mission_id, [to], _reply_subject(base_subject), body,
+            in_reply_to=(previous or {}).get("message_id"),
+            reply_to_graph_id=(previous or {}).get("provider_message_id"),
+        )
+    except EmailError as e:
+        flash(f"Échec de l'envoi de l'itinéraire : {e}", "error")
+        return retour
+
+    flash(f"Itinéraire envoyé à {to}, en réponse à son ordre de mission.", "success")
+    return retour
+
+
+@bp.route("/<int:mission_id>/prix-visibilite", methods=["POST"])
+def toggle_price_visibility(mission_id):
+    """Bascule « prix affiché / masqué » de la fiche mission. Masqué, le
+    prix disparaît du PDF (pour tout le monde : c'est le document qui part
+    au chauffeur et à l'agence) et des écrans pour les non-administrateurs.
+    Un administrateur continue de le voir dans l'application.
+
+    Route hors DRIVER_ENDPOINTS : un chauffeur ne peut pas l'appeler."""
+    mission = repo.get_mission(mission_id)
+    if not mission:
+        abort(404)
+    hidden = not mission.get("price_hidden")
+    repo.set_price_hidden(mission_id, hidden)
+    flash("Prix masqué : il n'apparaîtra plus sur le PDF ni pour les chauffeurs."
+          if hidden else "Prix affiché : il réapparaît sur le PDF et pour les chauffeurs.",
+          "success")
+    return redirect(_detail_url(mission_id))
+
+
+@bp.route("/archiver", methods=["POST"])
+def archive_missions():
+    """Sélection multiple de l'onglet « Missions passées » -> bouton
+    « Archiver » : les missions sortent des onglets À venir / Missions
+    passées et basculent dans « Missions archivées », d'où le bouton
+    « Désarchiver » les ramène. Rien n'est supprimé, et le planning
+    continue de les afficher."""
+    ids = request.form.getlist("mission_ids", type=int)
+    archiver = request.form.get("archived") != "0"
+    retour = url_for("missions.list_missions_view",
+                     tab=request.form.get("tab") or "past")
+    if not ids:
+        flash("Sélectionnez au moins un ordre de mission.", "error")
+        return redirect(retour)
+
+    changed = repo.set_missions_archived(ids, archiver)
+    verbe = "archivé" if archiver else "désarchivé"
+    if changed:
+        flash(f"{changed} ordre(s) de mission {verbe}(s).", "success")
+    else:
+        flash(f"Aucun ordre de mission à {'archiver' if archiver else 'désarchiver'} "
+              "dans la sélection.", "error")
+    return redirect(retour)
 
 
 @bp.route("/envoi-chauffeurs", methods=["POST"])
 def bulk_email_drivers():
     """Sélection multiple -> un email distinct par mission, adressé au
-    chauffeur de cette mission (contrairement à l'envoi Randstad qui
+    chauffeur de cette mission (contrairement à l'envoi à l'intérim qui
     regroupe tout dans un seul email)."""
     ids = request.form.getlist("mission_ids", type=int)
     missions = [m for m in (repo.get_mission(i) for i in ids) if m]

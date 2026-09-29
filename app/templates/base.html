@@ -38,9 +38,28 @@
       <a href="{{ url_for('planning.calendar_view') }}" class="{{ 'active' if request.blueprint == 'planning' }}">Planning</a>
       <a href="{{ url_for('missions.list_missions_view') }}" class="{{ 'active' if request.blueprint == 'missions' }}">Ordres de mission</a>
       {% if is_admin %}
-      <a href="{{ url_for('drivers.list_drivers_view') }}" class="{{ 'active' if request.blueprint == 'drivers' }}">Personnel</a>
-      <a href="{{ url_for('vehicles.list_vehicles_view') }}" class="{{ 'active' if request.blueprint == 'vehicles' }}">Véhicules{% if vehicle_ct_alerts %}<span class="topbar__count" title="{{ vehicle_ct_alerts }} contrôle(s) technique(s) à faire sous 30 jours">{{ vehicle_ct_alerts }}</span>{% endif %}</a>
-      <a href="{{ url_for('clients.list_clients_view') }}" class="{{ 'active' if request.blueprint == 'clients' }}">Clients</a>
+      {# « Ressources » regroupe Personnel et Véhicules : deux écrans
+         distincts, réunis sous une seule entrée de menu. La pastille
+         d'alerte des contrôles techniques est reprise sur le résumé,
+         sinon elle disparaîtrait tant que le menu est replié. #}
+      <details class="topbar__menu" {{ 'data-current' if request.blueprint in ('drivers', 'vehicles') }}>
+        <summary>Ressources{% if vehicle_ct_alerts %}<span class="topbar__count" title="{{ vehicle_ct_alerts }} contrôle(s) technique(s) à faire sous 30 jours">{{ vehicle_ct_alerts }}</span>{% endif %}</summary>
+        <div class="topbar__menu-panel">
+          <a href="{{ url_for('drivers.list_drivers_view') }}" class="{{ 'active' if request.blueprint == 'drivers' }}">Personnel</a>
+          <a href="{{ url_for('vehicles.list_vehicles_view') }}" class="{{ 'active' if request.blueprint == 'vehicles' }}">Véhicules{% if vehicle_ct_alerts %}<span class="topbar__count" title="{{ vehicle_ct_alerts }} contrôle(s) technique(s) à faire sous 30 jours">{{ vehicle_ct_alerts }}</span>{% endif %}</a>
+        </div>
+      </details>
+      {# Clients et Partenaires sont regroupes sous « Tiers ». <details>
+         plutot qu'un menu en JS : le repli marche sans script, le script
+         ci-dessous ne sert qu'a refermer le panneau quand on clique
+         ailleurs. #}
+      <details class="topbar__menu" {{ 'data-current' if request.blueprint in ('clients', 'partners') }}>
+        <summary>Tiers</summary>
+        <div class="topbar__menu-panel">
+          <a href="{{ url_for('clients.list_clients_view') }}" class="{{ 'active' if request.blueprint == 'clients' }}">Clients</a>
+          <a href="{{ url_for('partners.list_partners_view') }}" class="{{ 'active' if request.blueprint == 'partners' }}">Partenaires</a>
+        </div>
+      </details>
       <a href="{{ url_for('templates_admin.list_templates_view') }}" class="{{ 'active' if request.blueprint == 'templates_admin' }}">Templates</a>
       <a href="{{ url_for('tours.planner_view') }}" class="{{ 'active' if request.blueprint == 'tours' }}">Plan de Ramassage</a>
       {% endif %}
@@ -149,6 +168,22 @@
       });
       document.addEventListener("keydown", function (e) {
         if (e.key === "Escape") setOpen(false);
+      });
+
+      // Sous-menus deroulants de la barre (« Tiers ») : refermes des qu'on
+      // clique en dehors ou sur Echap, comme le menu hamburger.
+      var menus = bar.querySelectorAll("details.topbar__menu");
+      function closeMenus(except) {
+        menus.forEach(function (d) { if (d !== except) d.open = false; });
+      }
+      menus.forEach(function (d) {
+        d.addEventListener("toggle", function () { if (d.open) closeMenus(d); });
+      });
+      document.addEventListener("click", function (e) {
+        menus.forEach(function (d) { if (!d.contains(e.target)) d.open = false; });
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") closeMenus(null);
       });
     })();
 

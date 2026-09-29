@@ -99,7 +99,9 @@
 
   <table class="tail">
     <tr><td class="label">Nombre de voyageurs :</td><td>{{ passenger_count }}</td></tr>
+    {% if show_price is not defined or show_price %}
     <tr><td class="label">Prix du transport :</td><td>{{ price or '' }}</td></tr>
+    {% endif %}
   </table>
 
   <div class="client-block">

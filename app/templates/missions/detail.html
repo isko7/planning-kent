@@ -19,7 +19,7 @@
       {% if mission.status != 'envoyé' %}<span class="badge badge--{{ mission.status }}">{{ mission.status }}</span>{% endif %}
       {% if mission.sent_randstad_at or mission.sent_driver_at %}
       <div class="flag-row">
-        {% if mission.sent_randstad_at %}<span class="flag flag--randstad" title="Envoyé à Randstad le {{ mission.sent_randstad_at }}">✓ Envoyé à Randstad</span>{% endif %}
+        {% if mission.sent_randstad_at %}<span class="flag flag--randstad" title="Envoyé à l'intérim le {{ mission.sent_randstad_at }}">✓ Envoyé à l'intérim</span>{% endif %}
         {% if mission.sent_driver_at %}<span class="flag flag--driver" title="Envoyé au chauffeur le {{ mission.sent_driver_at }}">✓ Envoyé au chauffeur</span>{% endif %}
       </div>
       {% endif %}
@@ -38,17 +38,32 @@
           <input type="hidden" name="return_time">
           <button type="submit" class="btn btn--secondary">↩ Créer le retour</button>
         </form>
+        {# L'itinéraire ne se propose qu'une fois l'ordre de mission parti
+           chez le chauffeur : il lui est envoyé en réponse à cet email-là,
+           pour que les deux se suivent dans sa boîte. Rien à voir avec la
+           case « Envoyer l'itinéraire » de sa fiche, qui ne règle que la
+           ligne ajoutée d'office à l'ordre de mission. #}
+        {% if mission.sent_driver_at %}
+        <form method="post" action="{{ url_for('missions.send_itinerary', mission_id=mission.id) }}"
+              target="{{ out }}" style="margin:0;">
+          <button type="submit" class="btn btn--secondary">🧭 Envoyer l'itinéraire</button>
+        </form>
+        {% endif %}
         {# Les deux envois ferment la rangée, réduits à leur icône : bleu
-           pour Randstad, rouge pour le chauffeur — les couleurs des deux
+           pour l'intérim, rouge pour le chauffeur — les couleurs des deux
            indicateurs d'envoi affichés au-dessus. #}
+        {# Pas d'agence sur la fiche du chauffeur = pas de destinataire :
+           le bouton n'aurait nulle part où envoyer. #}
+        {% if mission.driver.partner_id %}
         <a href="{{ url_for('missions.bulk_email', mission_ids=mission.id) }}" target="{{ out }}"
-           class="btn btn--blue btn--icon" title="Envoyer à Randstad" aria-label="Envoyer à Randstad">
+           class="btn btn--blue btn--icon" title="Envoyer à l'intérim" aria-label="Envoyer à l'intérim">
           <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"
                fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 3 10.5 13.5M21 3l-6.5 18-4-8-8-4L21 3z"/>
           </svg>
         </a>
+        {% endif %}
         <a href="{{ url_for('missions.email_mission', mission_id=mission.id) }}" target="{{ out }}"
            class="btn btn--primary btn--icon" title="Envoyer par email au chauffeur"
            aria-label="Envoyer par email au chauffeur">
@@ -85,7 +100,26 @@
       <div class="item"><div class="label">Motif</div><div class="value">{{ mission.motif }}</div></div>
       {% endif %}
       <div class="item"><div class="label">Client</div><div class="value">{{ mission.client.name if mission.client else '—' }}</div></div>
-      <div class="item"><div class="label">Prix</div><div class="value">{{ mission.price or '—' }}</div></div>
+      {# Prix masqué : invisible pour un chauffeur, toujours lisible par un
+         administrateur — accompagné de la bascule qui règle sa présence
+         sur le PDF. #}
+      {% if is_admin or not mission.price_hidden %}
+      <div class="item">
+        <div class="label">Prix</div>
+        <div class="value price-value">
+          <span{{ ' class=is-hidden-price' if mission.price_hidden }}>{{ mission.price or '—' }}</span>
+          {% if is_admin %}
+          <form method="post" action="{{ url_for('missions.toggle_price_visibility', mission_id=mission.id) }}"
+                target="{{ out }}" style="display:inline; margin:0;">
+            <button type="submit" class="btn btn--ghost btn--sm"
+                    title="{{ 'Le prix est masqué : absent du PDF et invisible pour les chauffeurs. Cliquez pour l’afficher.' if mission.price_hidden else 'Le prix est affiché sur le PDF. Cliquez pour le masquer.' }}">
+              {{ '🚫 Masqué' if mission.price_hidden else '👁 Affiché' }}
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
     </div>
     {% if mission.remarks %}
       <div class="field" style="margin-top:6px;"><label>Remarques</label><div>{{ mission.remarks }}</div></div>

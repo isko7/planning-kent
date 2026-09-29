@@ -27,6 +27,7 @@
   --warn-bg: #fff2df;
   --warn-text: #9a5b00;
   --danger-line: #f0c9c9;
+  --warn-line: #f0d5ac;
   --blue: #1d63d8;
   --blue-dark: #164ea8;
   --blue-bg: #e8f0fd;
@@ -70,6 +71,7 @@
     --warn-bg: #33260f;
     --warn-text: #f0b45a;
     --danger-line: #5a2a30;
+    --warn-line: #6b4c1d;
     --blue-bg: #172338;
     --blue-text: #8ab4ff;
     --grid-rule: #55575f;
@@ -129,6 +131,34 @@ a:hover { text-decoration: underline; }
   background: var(--red); color: #fff; font-size: 11px; font-weight: 800; line-height: 1.5;
 }
 .topbar__nav a.active .topbar__count { background: rgba(0,0,0,.35); }
+
+/* Sous-menu de la barre du haut (« Tiers »). Le résumé se présente comme
+   une entrée de menu ordinaire : on retire la flèche native du <details>
+   pour mettre la nôtre. */
+.topbar__menu { position: relative; flex: none; }
+.topbar__menu > summary {
+  color: #d9d9de; padding: 10px 12px; border-radius: var(--radius);
+  font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  list-style: none; user-select: none;
+}
+.topbar__menu > summary::-webkit-details-marker { display: none; }
+.topbar__menu > summary::after { content: " ▾"; font-size: 11px; opacity: .8; }
+.topbar__menu > summary:hover { color: #fff; background: rgba(255,255,255,0.08); }
+/* Un des écrans du groupe est ouvert : le résumé porte la couleur active,
+   comme le ferait le lien correspondant. */
+.topbar__menu[data-current] > summary { color: #fff; background: var(--red); }
+/* Pastille d'alerte sur un résumé déjà rouge : elle s'y perdrait. */
+.topbar__menu[data-current] > summary .topbar__count { background: rgba(0,0,0,.35); }
+.topbar__menu-panel {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+  display: flex; flex-direction: column; gap: 2px; min-width: 180px;
+  padding: 6px; border-radius: var(--radius);
+  background: var(--chrome); box-shadow: 0 14px 28px rgba(0,0,0,.35);
+}
+.topbar__menu-panel a { display: block; }
+/* `.topbar__nav` défile horizontalement (voir plus bas) : ce défilement
+   rognerait le panneau déroulé. On lève le rognage le temps de l'ouverture. */
+.topbar__nav:has(.topbar__menu[open]) { overflow: visible; }
 /* Bouton du menu replié : n'apparaît que sur téléphone (media query plus bas). */
 .topbar__burger {
   display: none; align-items: center; justify-content: center; flex: none;
@@ -205,9 +235,28 @@ a:hover { text-decoration: underline; }
 .btn--ghost:hover { background: var(--hover); }
 .btn--danger { background: var(--surface); color: var(--err-text); border-color: var(--danger-line); }
 .btn--danger:hover { background: var(--err-bg); }
+/* Contour orange, sur le modèle de .btn--danger : action de rangement
+   (archivage), ni destructrice ni ordinaire. */
+.btn--warn { background: var(--surface); color: var(--warn-text); border-color: var(--warn-line); }
+.btn--warn:hover { background: var(--warn-bg); }
 .btn--blue { background: var(--blue); color: #fff; }
 .btn--blue:hover { background: var(--blue-dark); }
 .btn--sm { padding: 6px 11px; font-size: 12.5px; }
+/* Bouton hors service : il doit se voir, et le survol ne doit pas laisser
+   croire le contraire (d'où l'annulation des :hover colorés ci-dessus). */
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+/* Prix d'une mission, avec sa bascule d'affichage à côté. Masqué, il reste
+   lisible par un administrateur mais barré : on voit d'un coup d'oeil
+   qu'il ne part pas sur le PDF. */
+.price-value { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Champ prix du formulaire : la bascule se tient à droite de la saisie. */
+.price-field { display: flex; align-items: center; gap: 8px; }
+.price-field input[type="text"] { flex: 1 1 auto; min-width: 0; }
+.price-field button { flex: none; white-space: nowrap; }
+.price-value .is-hidden-price { text-decoration: line-through; color: var(--muted); }
+.btn--blue:disabled:hover { background: var(--blue); }
+.btn--primary:disabled:hover { background: var(--red); }
+.btn--secondary:disabled:hover { background: var(--surface); }
 /* Bouton réduit à son icône (envois de la fiche mission) : carré, le libellé
    passe dans title/aria-label. */
 .btn--icon { padding: 9px; }
@@ -457,6 +506,9 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
    mais il réapparaît sur téléphone, où les deux mots se suivent. */
 .week-nav__when { display: block; }
 .week-nav--next { flex-direction: row-reverse; }
+/* Rappel des flèches sous le calendrier : utile sur téléphone seulement,
+   où la grille est longue. Sur écran large celles du haut restent en vue. */
+.week-nav-row--bottom { display: none; }
 
 .planning-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 16px; font-size: 12.5px; color: var(--ink-soft); }
 .planning-legend__item { display: inline-flex; align-items: center; gap: 6px; }
@@ -470,11 +522,31 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
 .share-link-row input { flex: 1; font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 
 /* Grille hebdomadaire (desktop uniquement, cf. media query plus bas) */
-.planning-grid { display: none; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; margin-bottom: 20px; }
+/* overflow-x auto plutôt que hidden : une colonne élargie à la main
+   dépasse la largeur de la page, la grille défile alors horizontalement. */
+.planning-grid {
+  display: none; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); overflow-x: auto; overflow-y: hidden; margin-bottom: 20px;
+}
 .planning-grid__row { display: flex; }
 .planning-grid__gutter { flex: 0 0 52px; }
 .planning-grid__header { border-bottom: 2px solid var(--grid-rule); }
-.planning-grid__daycol-header { flex: 1; text-align: center; padding: 10px 4px; border-left: 2px solid var(--grid-rule); }
+.planning-grid__daycol-header { position: relative; flex: 1; text-align: center; padding: 10px 4px; border-left: 2px solid var(--grid-rule); }
+/* Poignée de largeur, au bord droit de l'en-tête du jour : on tire pour
+   élargir ou rétrécir la colonne (planning.js). Rien n'est mémorisé — la
+   grille reprend ses largeurs égales au rechargement ou en changeant de
+   semaine. Double-clic : tout revient par défaut. */
+.planning-grid__resize {
+  position: absolute; top: 0; right: -5px; bottom: 0; width: 11px; z-index: 2;
+  cursor: col-resize; touch-action: none;
+}
+.planning-grid__resize::after {
+  content: ""; position: absolute; top: 22%; bottom: 22%; left: 4px; width: 3px;
+  border-radius: 2px; background: var(--muted); opacity: 0;
+}
+.planning-grid__resize:hover::after { opacity: .7; }
+.planning-grid.is-resizing { cursor: col-resize; user-select: none; }
+.planning-grid.is-resizing .planning-grid__resize::after { opacity: .9; }
 .planning-grid__daycol-header .dow { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); font-weight: 700; }
 .planning-grid__daycol-header .dom { font-size: 17px; font-weight: 700; margin-top: 2px; }
 .planning-grid__daycol-header.is-today .dom { color: var(--red-text); }
@@ -543,23 +615,23 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
 .planning-event__meta { font-size: 11px; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .planning-event__vehicle { margin-top: 2px; font-size: 10.5px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Œil « aperçu du PDF » : au-dessus du lien étiré (z-index), discret sur la
-   grille — les blocs y sont parfois hauts de quelques pixels. */
+/* Œil « aperçu du PDF » : sous la dernière ligne du bloc, au-dessus du lien
+   étiré (z-index) pour rester cliquable. Il suit le rythme des lignes —
+   même écart qu'entre le nom de la mission et celui du chauffeur. */
 .planning-eye {
   position: relative; z-index: 1; flex: none; display: inline-flex;
-  align-items: center; justify-content: center; width: 26px; height: 26px;
+  align-items: center; justify-content: center; width: 24px; height: 22px;
   border-radius: 6px; color: var(--muted); text-decoration: none;
 }
 .planning-eye:hover { background: var(--hover); color: var(--ink); text-decoration: none; }
 .planning-event .planning-eye, .planning-allday-chip .planning-eye {
-  position: absolute; top: 2px; right: 2px; width: 20px; height: 20px;
-  color: #fff; opacity: .7; background: rgba(0, 0, 0, .18);
+  display: flex; width: 22px; height: 18px; margin-top: 9px;
+  color: #fff; opacity: .75; background: rgba(0, 0, 0, .18);
 }
 .planning-event .planning-eye:hover, .planning-allday-chip .planning-eye:hover {
   opacity: 1; background: rgba(0, 0, 0, .35); color: #fff;
 }
-/* Le nom du bloc s'arrête avant l'œil, sinon il passe dessous. */
-.planning-event__time, .planning-allday-chip .planning-event__open { padding-right: 20px; }
+.planning-allday-chip .planning-eye { margin-top: 3px; }
 
 .planning-now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--red); z-index: 3; pointer-events: none; }
 .planning-now-line::before {
@@ -579,13 +651,13 @@ footer.app-footer { text-align: center; color: var(--muted); font-size: 12px; pa
    (::after) pour qu'un clic n'importe où ouvre la mission, tout en laissant
    l'œil de l'aperçu PDF cliquable par-dessus. */
 .planning-chip {
-  position: relative; display: flex; align-items: flex-start; gap: 8px;
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   padding: 9px 12px; margin-bottom: 8px;
   background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--chip-color, var(--red));
   border-radius: 8px; color: var(--ink);
 }
 .planning-chip__open {
-  display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 2px; align-self: stretch; min-width: 0;
   color: inherit; text-decoration: none;
 }
 .planning-chip__open::after { content: ""; position: absolute; inset: 0; }
@@ -644,6 +716,13 @@ body.planning-view-grid .planning-grid { display: block; }
   }
   .topbar.is-nav-open .topbar__nav { display: flex; }
   .topbar__nav a { padding: 11px 12px; font-size: 15px; white-space: nowrap; }
+  /* Menu replié : le sous-menu se déplie dans le flux, décalé, plutôt qu'en
+     panneau flottant — il n'y a pas la place à côté. */
+  .topbar__menu > summary { padding: 11px 12px; font-size: 15px; }
+  .topbar__menu-panel {
+    position: static; min-width: 0; padding: 2px 0 2px 14px;
+    background: none; box-shadow: none;
+  }
   /* Place comptée : on garde le bouton de déconnexion, pas le nom. */
   .topbar__user { gap: 6px; }
   .topbar__user-name { display: none; }
@@ -671,14 +750,23 @@ body.planning-view-grid .planning-grid { display: block; }
   .filter-bar .field { flex: 1 1 100%; min-width: 0 !important; }
   .filter-bar .field:has(input[type=date]) { flex-basis: calc(50% - 7px); }
 
-  /* Vue agenda : les deux flèches passent au-dessus, côte à côte. */
-  /* Les flèches passent au-dessus et en-dessous de la barre de filtres,
-     sur toute la largeur : côte à côte, elles seraient trop étroites. */
-  .week-nav-row { flex-direction: column; gap: 10px; }
-  .week-nav { justify-content: center; padding: 12px; font-size: 14px; }
+  /* Les filtres prennent toute la première ligne, les deux flèches se
+     partagent la seconde — l'une à gauche, l'autre à droite. `order` suffit
+     à les faire passer sous les filtres sans toucher au balisage, qui garde
+     l'ordre « précédente, filtres, suivante » utile sur écran large. */
+  .week-nav-row { flex-direction: row; flex-wrap: wrap; gap: 10px; }
+  .week-nav-row .filter-panel { order: 1; flex: 1 1 100%; align-self: stretch; }
+  .week-nav--prev { order: 2; }
+  .week-nav--next { order: 3; }
+  .week-nav {
+    flex: 1 1 0; min-width: 0; justify-content: center; padding: 12px 10px; font-size: 13.5px;
+  }
   .week-nav__arrow { font-size: 22px; }
-  .week-nav__when { display: inline; }
+  /* Deux boutons sur une ligne : « Semaine » et « précédente » empilés,
+     sinon le libellé déborde sur un écran de 360 px. */
+  .week-nav__when { display: block; }
   .week-nav-row .filter-bar { width: 100%; }
+  .week-nav-row--bottom { display: flex; margin: 16px 0 0; }
   .week-title { font-size: 17px; }
 
   /* Bloc-notes : bandeau bas, pleine largeur, plutôt qu'une vignette. */
@@ -1116,3 +1204,76 @@ input.tour-stop__time {
 .return-dialog .hint { margin: 0 0 16px; font-size: 12.5px; color: var(--muted); }
 .return-dialog .form-grid { gap: 0 16px; }
 .return-dialog .btn-row { justify-content: flex-end; margin-top: 4px; }
+
+/* --------------------------------------------------------- navettes */
+/* Section « Navettes » du Plan de Ramassage : la saisie (adresse + nombre
+   de voyageurs) puis le résultat, une carte par navette. */
+.shuttle-list { list-style: none; margin: 0 0 10px; padding: 0; }
+.shuttle-stop {
+  display: flex; align-items: center; gap: 10px; padding: 4px 6px;
+  border-radius: var(--radius);
+}
+.shuttle-stop:hover { background: var(--hover-warm); }
+.shuttle-stop__rank {
+  flex: none; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  background: var(--tint); color: var(--ink-soft); border-radius: 50%; font-size: 12px; font-weight: 700;
+}
+.shuttle-stop__field { flex: 1; min-width: 0; }
+input.shuttle-stop__pax { flex: none; width: 76px; text-align: center; }
+.shuttle-stop.is-invalid input { border-color: var(--err-text); background: var(--err-bg); }
+.shuttle-params { margin-top: 14px; }
+
+/* Résultat : un bloc par navette, sa couleur reprise sur la carte. */
+.shuttle-result {
+  margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line);
+  border-left: 4px solid var(--shuttle-color, var(--red)); border-radius: 10px;
+  background: var(--surface-alt);
+}
+.shuttle-result__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.shuttle-result__name { font-weight: 800; color: var(--shuttle-color, var(--red)); }
+.shuttle-result__pax {
+  padding: 2px 9px; border-radius: 20px; background: var(--tint); color: var(--ink-soft);
+  font-size: 12px; font-weight: 700;
+}
+.shuttle-result__meta { font-size: 12.5px; color: var(--muted); }
+.shuttle-result__head .btn { margin-left: auto; }
+.shuttle-result__stops { list-style: none; margin: 10px 0 0; padding: 0; }
+.shuttle-result__stops li {
+  display: flex; align-items: baseline; gap: 10px; padding: 3px 0;
+  border-top: 1px solid var(--line); font-size: 13.5px;
+}
+.shuttle-result__stops li:first-child { border-top: 0; }
+.shuttle-result__time {
+  flex: none; width: 56px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--shuttle-color, var(--ink));
+}
+.shuttle-result__address { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.shuttle-result__count { flex: none; font-size: 12px; color: var(--muted); }
+.shuttle-result__end { font-weight: 700; }
+#shuttle-map { margin-top: 16px; }
+#shuttle-card .hint { font-size: 12.5px; color: var(--muted); }
+
+@media (max-width: 720px) {
+  .shuttle-stop { flex-wrap: wrap; }
+  .shuttle-stop__field { flex-basis: 100%; order: 3; }
+  .shuttle-result__head .btn { margin-left: 0; flex: 1 1 100%; justify-content: center; }
+}
+
+/* Choix du fournisseur d'itinéraire (Plan de Ramassage). */
+.route-provider { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-soft); }
+.route-provider select { width: auto; padding: 7px 9px; font-size: 13px; }
+@media (max-width: 720px) {
+  .route-provider { flex: 1 1 100%; justify-content: space-between; }
+  .route-provider select { flex: 1; margin-left: 10px; }
+}
+
+/* Poignée de glissé d'une ligne de trajet (formulaire OM). touch-action :
+   sans elle, le doigt ferait défiler la page au lieu de déplacer la ligne. */
+.row-grip {
+  background: none; border: 0; padding: 6px 4px; cursor: grab; touch-action: none;
+  color: var(--muted); font-size: 14px; line-height: 1; font-family: var(--font);
+}
+.row-grip:hover { color: var(--ink); }
+table.edit-rows tr.is-dragging { background: var(--surface); box-shadow: 0 6px 18px rgba(0, 0, 0, .16); }
+table.edit-rows tr.is-dragging .row-grip { cursor: grabbing; }
+@media (max-width: 720px) { .row-grip { font-size: 18px; padding: 8px 10px; } }

@@ -20,7 +20,7 @@ import re
 import urllib.parse
 import urllib.request
 from datetime import datetime
-from math import asin, cos, radians, sin, sqrt
+from math import asin, atan2, cos, radians, sin, sqrt
 
 from app.config import COMPANY, TOMTOM_API_KEY
 from app.utils import _fold, is_depot
@@ -433,3 +433,335 @@ def shortest_tour_order(points):
     candidates.sort(key=length)
     results = [_improve(c, length) for c in candidates[:IMPROVED_STARTS]]
     return min(results, key=lambda r: r[1])[0]
+
+
+# ------------------------------------------------- navettes (ramassage)
+# Répartir des points de ramassage entre plusieurs navettes qui convergent
+# toutes vers un même lieu (gare, aéroport, site) : le moins de navettes
+# possible — leur nombre est d'abord dicté par les places — puis le trajet
+# le plus court pour chacune. Écran Plan de Ramassage, section « Navettes ».
+MAX_SHUTTLE_STOPS = 40
+
+
+def shortest_path_to(points, end):
+    """Ordre des `points` pour que le trajet qui les enchaîne puis rejoint
+    `end` soit le plus court. Le point de départ reste libre : c'est la
+    destination, commune à toutes les navettes, qui est imposée."""
+    n = len(points)
+    if n <= 1:
+        return list(range(n))
+    dist = [[haversine_km(a, b) for b in points] for a in points]
+    to_end = [haversine_km(point, end) for point in points]
+
+    def length(seq):
+        return sum(dist[seq[i]][seq[i + 1]] for i in range(len(seq) - 1)) + to_end[seq[-1]]
+
+    candidates = [_nearest_neighbour(dist, n, start) for start in range(n)]
+    candidates.append(list(range(n)))
+    candidates.sort(key=length)
+    results = [_improve(c, length) for c in candidates[:IMPROVED_STARTS]]
+    return min(results, key=lambda r: r[1])[0]
+
+
+def route_length_to(points, end):
+    """Longueur du trajet qui enchaîne `points` dans cet ordre puis rejoint
+    `end`, en km."""
+    if not points:
+        return 0.0
+    legs = [haversine_km(points[i], points[i + 1]) for i in range(len(points) - 1)]
+    return sum(legs) + haversine_km(points[-1], end)
+
+
+def _sweep_groups(points, demands, destination, seats, start, limit):
+    """Balayage : les points sont pris dans l'ordre où ils tournent autour de
+    la destination, en partant du `start`-ième, et remplissent une navette
+    jusqu'à ce que les places manquent. None si le tour demande plus de
+    navettes que `limit`."""
+    order = sorted(range(len(points)),
+                   key=lambda i: atan2(points[i][0] - destination[0],
+                                       points[i][1] - destination[1]))
+    order = order[start:] + order[:start]
+    groups, current, load = [], [], 0
+    for index in order:
+        if current and load + demands[index] > seats:
+            groups.append(current)
+            current, load = [], 0
+        current.append(index)
+        load += demands[index]
+    if current:
+        groups.append(current)
+    return None if limit and len(groups) > limit else groups
+
+
+def _fill_score(groups, demands):
+    """Mesure du remplissage : la somme des carrés des charges. À nombre de
+    navettes égal, elle est d'autant plus grande que les navettes sont
+    remplies à ras bord plutôt qu'à moitié (8 + 2 l'emporte sur 5 + 5).
+    C'est la priorité de l'écran : remplir, puis réduire le nombre de
+    navettes, et seulement ensuite raccourcir les trajets."""
+    return sum(sum(demands[i] for i in group) ** 2 for group in groups)
+
+
+def _groups_length(groups, points, destination):
+    return sum(route_length_to([points[i] for i in group], destination) for group in groups)
+
+
+def _order_groups(groups, points, destination):
+    """Chaque navette remise dans son ordre de passage le plus court."""
+    return [[group[i] for i in shortest_path_to([points[j] for j in group], destination)]
+            for group in groups]
+
+
+def _empty_smallest(groups, points, demands, destination, seats, needed):
+    """Cherche à supprimer des navettes : la moins chargée est vidée dans les
+    autres, ses points allant chacun là où le détour est le plus court.
+
+    Le balayage remplit dans l'ordre où les points tournent autour de la
+    destination ; il laisse parfois une navette à moitié vide alors que des
+    sièges libres ailleurs auraient suffi. On s'arrête dès qu'une navette ne
+    peut plus être vidée, ou quand le minimum imposé par les places est
+    atteint."""
+    while len(groups) > needed:
+        loads = [sum(demands[i] for i in group) for group in groups]
+        smallest = min(range(len(groups)), key=lambda k: loads[k])
+        rest = [list(group) for k, group in enumerate(groups) if k != smallest]
+        spare = sorted(groups[smallest], key=lambda i: -demands[i])
+        placed = 0
+        for point in spare:
+            best = None
+            for k, group in enumerate(rest):
+                if sum(demands[i] for i in group) + demands[point] > seats:
+                    continue
+                before = route_length_to([points[i] for i in group], destination)
+                ordered = [(group + [point])[i] for i in
+                           shortest_path_to([points[j] for j in group + [point]], destination)]
+                after = route_length_to([points[i] for i in ordered], destination)
+                if best is None or after - before < best[0]:
+                    best = (after - before, k, ordered)
+            if best is None:
+                break
+            rest[best[1]] = best[2]
+            placed += 1
+        if placed < len(spare):
+            break  # navette impossible à vider : on garde la répartition
+        groups = rest
+    return groups
+
+
+# Au-delà, on arrête les échanges : le gain devient marginal et le temps
+# de calcul, lui, ne l'est pas.
+MAX_EXCHANGES = 300
+
+
+def _exchange(groups, points, demands, destination, seats):
+    """Échanges entre navettes, tant qu'ils améliorent la répartition.
+
+    Trois familles, de la plus simple à la plus utile : déplacer un point
+    d'une navette à l'autre, échanger deux points, échanger un point contre
+    deux. Cette dernière n'est pas un luxe — quand les navettes sont pleines,
+    c'est souvent le seul mouvement possible : reprendre un arrêt à deux
+    voyageurs en rendant deux arrêts à un voyageur.
+
+    L'ordre des priorités décide de ce qu'on accepte : mieux rempli passe
+    même si c'est plus long, à remplissage égal il faut raccourcir, et vider
+    une navette au profit d'une autre à moitié pleine ne passe jamais.
+
+    Chaque échange accepté relance la recherche : les listes viennent de
+    changer, continuer à les parcourir perdrait des points.
+    """
+    to_dest = [haversine_km(point, destination) for point in points]
+    between = {}
+
+    def gap(i, j):
+        key = (i, j) if i < j else (j, i)
+        if key not in between:
+            between[key] = haversine_km(points[i], points[j])
+        return between[key]
+
+    def quick(group):
+        """Longueur approchée d'une navette : plus proche voisin depuis le
+        point le plus éloigné de la destination, sans recherche locale. Elle
+        sert à écarter les échanges sans intérêt — les rares qui passent sont
+        ensuite recalculés pour de bon."""
+        if not group:
+            return 0.0
+        remaining = list(group)
+        current = max(remaining, key=lambda i: to_dest[i])
+        remaining.remove(current)
+        total = 0.0
+        while remaining:
+            closest = min(remaining, key=lambda i: gap(current, i))
+            total += gap(current, closest)
+            remaining.remove(closest)
+            current = closest
+        return total + to_dest[current]
+
+    def rebuilt(group):
+        ordered = [group[i] for i in shortest_path_to([points[j] for j in group], destination)]
+        return ordered, route_length_to([points[i] for i in ordered], destination)
+
+    loads = [sum(demands[i] for i in group) for group in groups]
+    lengths = [route_length_to([points[i] for i in group], destination) for group in groups]
+
+    def worth(a, b, take_a, take_b):
+        """L'échange (les points `take_a` de a contre `take_b` de b) est-il
+        bon à prendre ? Renvoie les deux navettes recalculées, ou None."""
+        left = [i for i in groups[a] if i not in take_a] + list(take_b)
+        right = [i for i in groups[b] if i not in take_b] + list(take_a)
+        if not left or not right:
+            return None
+        load_left = sum(demands[i] for i in left)
+        load_right = sum(demands[i] for i in right)
+        if load_left > seats or load_right > seats:
+            return None
+        fill_before = loads[a] ** 2 + loads[b] ** 2
+        fill_after = load_left ** 2 + load_right ** 2
+        if fill_after < fill_before:
+            return None
+        if fill_after == fill_before:
+            # Remplissage identique : il faut y gagner en distance. Tri
+            # rapide d'abord, calcul complet seulement si ça vaut le coup.
+            if quick(left) + quick(right) >= quick(groups[a]) + quick(groups[b]) - 1e-9:
+                return None
+        ordered_left, length_left = rebuilt(left)
+        ordered_right, length_right = rebuilt(right)
+        if fill_after == fill_before and length_left + length_right >= lengths[a] + lengths[b] - 1e-9:
+            return None
+        return ordered_left, length_left, ordered_right, length_right
+
+    def apply(a, b, result):
+        groups[a], lengths[a], groups[b], lengths[b] = result
+        loads[a] = sum(demands[i] for i in groups[a])
+        loads[b] = sum(demands[i] for i in groups[b])
+
+    def pairs(group):
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                yield (group[i], group[j])
+
+    def one_exchange():
+        """Premier échange qui améliore la répartition, appliqué aussitôt."""
+        for a in range(len(groups)):
+            for b in range(len(groups)):
+                if a == b:
+                    continue
+                for point in groups[a]:
+                    result = worth(a, b, (point,), ())
+                    if result:
+                        apply(a, b, result)
+                        return True
+                for first in groups[a]:
+                    for second in groups[b]:
+                        result = worth(a, b, (first,), (second,))
+                        if result:
+                            apply(a, b, result)
+                            return True
+                    for couple in pairs(groups[b]):
+                        result = worth(a, b, (first,), couple)
+                        if result:
+                            apply(a, b, result)
+                            return True
+        return False
+
+    for _ in range(MAX_EXCHANGES):
+        if not one_exchange():
+            break
+    return [group for group in groups if group]
+
+
+def plan_shuttles(points, demands, destination, seats, limit=None):
+    """Répartit des points de ramassage entre des navettes de `seats` places
+    qui rejoignent toutes `destination`.
+
+    Les priorités, dans cet ordre : remplir les navettes au maximum (donc en
+    avoir le moins possible), puis raccourcir les trajets. C'est ce que
+    départagent _fill_score et la longueur, partout où deux répartitions sont
+    comparées.
+
+    `limit` : nombre de navettes à ne pas dépasser (vide = seulement ce que
+    les places imposent). Trois temps : balayage autour de la destination —
+    tenté depuis chaque point, un balayage mal commencé coupant en deux un
+    groupe naturel —, ordre de passage le plus court pour chaque navette,
+    puis échanges entre navettes (voir _exchange).
+
+    Renvoie une liste de listes d'indices, une par navette, les plus longues
+    d'abord.
+    """
+    if not points:
+        return []
+    if seats < 1:
+        raise RoutingError("Il faut au moins un siège par navette.")
+    if any(demand > seats for demand in demands):
+        raise RoutingError(
+            f"Un arrêt demande plus de {seats} places : aucune navette ne peut le prendre seul.")
+    needed = -(-sum(demands) // seats)  # division entière, arrondie vers le haut
+    if limit and limit < needed:
+        raise RoutingError(
+            f"{sum(demands)} voyageurs à {seats} places par navette : il en faut au moins {needed}.")
+
+    best = None
+    for start in range(len(points)):
+        groups = _sweep_groups(points, demands, destination, seats, start, limit)
+        if groups is None:
+            continue
+        score = (len(groups), -_fill_score(groups, demands),
+                 _groups_length(groups, points, destination))
+        if best is None or score < best[0]:
+            best = (score, groups)
+    if best is None:
+        # Aucun balayage ne tient dans la limite (places très fragmentées) :
+        # on repart du plus simple, quitte à dépasser d'une navette.
+        best = (None, _sweep_groups(points, demands, destination, seats, 0, None))
+
+    groups = _order_groups(best[1], points, destination)
+    groups = _empty_smallest(groups, points, demands, destination, seats, needed)
+    groups = _exchange(groups, points, demands, destination, seats)
+    groups = _empty_smallest(groups, points, demands, destination, seats, needed)
+    groups.sort(key=lambda group: -route_length_to([points[i] for i in group], destination))
+    return groups
+
+
+# ------------------------------------------------- itinéraire TomTom
+# Le navigateur sait tracer un itinéraire avec Google Maps ; l'écran Plan de
+# Ramassage laisse choisir TomTom à la place. Le calcul se fait alors côté
+# serveur — la clé TomTom n'a rien à faire dans le navigateur — et rend les
+# mêmes informations : une étape par tronçon (distance, durée) et le tracé à
+# dessiner sur la carte.
+TOMTOM_ROUTE_POINTS = 150
+
+
+def route_via_tomtom(points, arrive_at=None):
+    """Itinéraire routier passant par `points` (liste de (lat, lon)), dans
+    cet ordre. Renvoie {legs: [{km, seconds}], path: [(lat, lon), …]}.
+
+    `arrive_at` (ISO « 2026-10-03T10:30:00 ») fait calculer le trafic pour
+    une arrivée à cette heure-là plutôt que pour maintenant."""
+    if not TOMTOM_API_KEY:
+        raise RoutingError("Clé TomTom absente : renseignez TOMTOM_API_KEY pour cet itinéraire.")
+    if len(points) < 2:
+        raise RoutingError("Il faut au moins deux points.")
+    coords = ":".join(f"{lat},{lon}" for lat, lon in points)
+    params = {"key": TOMTOM_API_KEY, "travelMode": "car", "traffic": "true",
+              "routeRepresentation": "polyline"}
+    if arrive_at:
+        params["arriveAt"] = arrive_at
+    data = _get_json(TOMTOM_ROUTE_URL.format(coords=coords) + "?" + urllib.parse.urlencode(params))
+    routes = data.get("routes") or []
+    if not routes:
+        raise RoutingError("TomTom ne trouve pas d'itinéraire entre ces points.")
+
+    legs, path = [], []
+    for leg in routes[0].get("legs") or []:
+        summary = leg.get("summary") or {}
+        legs.append({
+            "km": round(summary.get("lengthInMeters", 0) / 1000, 2),
+            "seconds": summary.get("travelTimeInSeconds", 0),
+        })
+        path.extend((p["latitude"], p["longitude"]) for p in leg.get("points") or [])
+    # Le tracé peut compter des milliers de points : un sur n suffit à
+    # dessiner la même ligne sur une carte de cette taille.
+    step = max(1, len(path) // TOMTOM_ROUTE_POINTS)
+    thinned = path[::step]
+    if path and thinned[-1] != path[-1]:
+        thinned.append(path[-1])
+    return {"legs": legs, "path": thinned}

@@ -32,7 +32,16 @@ def _form_to_data(form):
         "username": form.get("username", "").strip().lower() or None,
         "notes": form.get("notes", "").strip() or None,
         "remarks": form.get("remarks", "").strip() or None,
+        # Agence d'interim : facultative, « — Aucun — » renvoie une
+        # chaine vide que `type=int` transforme en None.
+        "partner_id": form.get("partner_id", type=int) or None,
     }
+
+
+def _form_context():
+    """Listes deroulantes du formulaire : palette de couleurs et agences
+    d'interim (ecran Partenaires)."""
+    return {"palette": DRIVER_COLOR_PALETTE, "partners": repo.list_partners()}
 
 
 def _apply_credentials(data, form, existing=None):
@@ -115,7 +124,8 @@ def _guard_last_account(driver_id, data):
 @bp.route("/")
 def list_drivers_view():
     drivers = repo.list_drivers()
-    return render_template("drivers/list.html", drivers=drivers)
+    partner_names = {p["id"]: p["name"] for p in repo.list_partners()}
+    return render_template("drivers/list.html", drivers=drivers, partner_names=partner_names)
 
 
 @bp.route("/nouveau", methods=["GET", "POST"])
@@ -130,11 +140,12 @@ def new_driver():
             for message in errors:
                 flash(message, "error")
             return render_template("drivers/form.html", driver=data, is_new=True,
-                                   palette=DRIVER_COLOR_PALETTE)
+                                   **_form_context())
         repo.create_driver(data)
         flash(f"Utilisateur {data['first_name']} {data['last_name']} créé.", "success")
         return redirect(url_for("drivers.list_drivers_view"))
-    return render_template("drivers/form.html", driver={"active": True}, is_new=True, palette=DRIVER_COLOR_PALETTE)
+    return render_template("drivers/form.html", driver={"active": True}, is_new=True,
+                           **_form_context())
 
 
 @bp.route("/<int:driver_id>", methods=["GET", "POST"])
@@ -156,7 +167,7 @@ def edit_driver(driver_id):
             for message in errors:
                 flash(message, "error")
             return render_template("drivers/form.html", driver=dict(driver, **data), is_new=False,
-                                   driver_id=driver_id, palette=DRIVER_COLOR_PALETTE)
+                                   driver_id=driver_id, **_form_context())
         repo.update_driver(driver_id, data)
         flash("Utilisateur mis à jour.", "success")
         response = redirect(url_for("drivers.list_drivers_view"))
@@ -168,7 +179,7 @@ def edit_driver(driver_id):
                                        issue_token(repo.get_driver(driver_id)))
         return response
     return render_template("drivers/form.html", driver=driver, is_new=False, driver_id=driver_id,
-                            palette=DRIVER_COLOR_PALETTE)
+                           **_form_context())
 
 
 @bp.route("/<int:driver_id>/reinitialiser-mot-de-passe", methods=["POST"])

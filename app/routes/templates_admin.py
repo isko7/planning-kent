@@ -18,7 +18,8 @@ DEMO_MISSION = {
     "emission_date": "2026-09-01",
     "motif": "Transport Occasionnel",
     "remarks": "Exemple de remarque.",
-    "price": "",
+    "price": "480 €",
+    "show_price": True,
     "legs": [
         {"start_time": "11:00", "end_time": "11:00", "vehicle_plate": "FK-066-ME",
          "label": "Prise de service - Dépôt KENT", "is_checkpoint": True},

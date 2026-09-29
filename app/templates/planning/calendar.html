@@ -92,17 +92,32 @@
   </div>
   {% endif %}
 
-  {# Navigation de semaine : une flèche de chaque côté de la barre de
-     filtres. Le calendrier reste ainsi sur toute la largeur. #}
-  <div class="week-nav-row">
+  {# Les deux flèches servent deux fois : en haut, de part et d'autre de la
+     barre de filtres (sur téléphone, côte à côte sous les filtres), et en
+     bas du calendrier — d'où les macros, pour ne pas dupliquer le balisage.
+     `rel` n'est posé que sur le premier exemplaire : un document n'a qu'une
+     page précédente et qu'une page suivante. #}
+  {% macro week_prev(rel='') %}
     <a class="week-nav week-nav--prev"
        href="{{ url_for('planning.calendar_view', date=prev_date, driver_id=filters.driver_id) }}"
-       title="Semaine précédente" rel="prev">
+       title="Semaine précédente"{% if rel %} rel="{{ rel }}"{% endif %}>
       <span class="week-nav__arrow" aria-hidden="true">←</span>
-      {# L'espace avant le second mot compte : sur téléphone les deux se
-         suivent sur une ligne, sur écran large le CSS les empile. #}
+      {# L'espace avant le second mot compte : le CSS empile les deux mots,
+         l'espace tombe alors en fin de ligne et ne se voit pas. #}
       <span class="week-nav__label">Semaine <span class="week-nav__when">précédente</span></span>
     </a>
+  {% endmacro %}
+  {% macro week_next(rel='') %}
+    <a class="week-nav week-nav--next"
+       href="{{ url_for('planning.calendar_view', date=next_date, driver_id=filters.driver_id) }}"
+       title="Semaine suivante"{% if rel %} rel="{{ rel }}"{% endif %}>
+      <span class="week-nav__arrow" aria-hidden="true">→</span>
+      <span class="week-nav__label">Semaine <span class="week-nav__when">suivante</span></span>
+    </a>
+  {% endmacro %}
+
+  <div class="week-nav-row">
+    {{ week_prev('prev') }}
 
   {# Replié par défaut : la semaine affichée se choisit aux flèches, le
      filtre chauffeur ne sert qu'à l'occasion. Ouvert d'office tant qu'un
@@ -136,12 +151,7 @@
   </form>
   </details>
 
-    <a class="week-nav week-nav--next"
-       href="{{ url_for('planning.calendar_view', date=next_date, driver_id=filters.driver_id) }}"
-       title="Semaine suivante" rel="next">
-      <span class="week-nav__arrow" aria-hidden="true">→</span>
-      <span class="week-nav__label">Semaine <span class="week-nav__when">suivante</span></span>
-    </a>
+    {{ week_next('next') }}
   </div>
 
   {# --------------------------------------------------- vue grille (desktop) #}
@@ -222,6 +232,14 @@
       {% endif %}
     </div>
     {% endfor %}
+  </div>
+
+  {# Rappel des flèches sous le calendrier : sur téléphone, la grille est
+     longue et remonter en haut pour changer de semaine est pénible. Masqué
+     sur écran large, où celles du haut restent visibles. #}
+  <div class="week-nav-row week-nav-row--bottom">
+    {{ week_prev() }}
+    {{ week_next() }}
   </div>
 
   <script id="planning-events" type="application/json">{{ events | tojson }}</script>

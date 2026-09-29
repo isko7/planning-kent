@@ -25,6 +25,7 @@ def create_app():
     from app.routes.drivers import bp as drivers_bp
     from app.routes.vehicles import bp as vehicles_bp
     from app.routes.clients import bp as clients_bp
+    from app.routes.partners import bp as partners_bp
     from app.routes.missions import bp as missions_bp
     from app.routes.planning import bp as planning_bp
     from app.routes.tours import bp as tours_bp
@@ -36,6 +37,7 @@ def create_app():
     app.register_blueprint(drivers_bp)
     app.register_blueprint(vehicles_bp)
     app.register_blueprint(clients_bp)
+    app.register_blueprint(partners_bp)
     app.register_blueprint(missions_bp)
     app.register_blueprint(planning_bp)
     app.register_blueprint(tours_bp)

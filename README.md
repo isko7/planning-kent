@@ -28,6 +28,50 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   Adresse Nationale, selon le réglage « Recherche d'adresse ») : le choix
   remplit aussi le code postal et la ville — sur la fiche client comme dans
   la création rapide du formulaire d'ordre de mission.
+- **Prix masquable** : sur la fiche d'un OM, un bouton réservé aux
+  administrateurs, à côté du prix, bascule entre « Affiché » et
+  « Masqué ». Masqué, le prix disparaît du **PDF** (pour tout le monde —
+  c'est le document qui part au chauffeur et à l'agence) et des écrans
+  pour les **non-administrateurs**. Un administrateur continue de le voir
+  dans l'application, barré, pour repérer d'un coup d'oeil qu'il ne part
+  pas. Le gabarit du billet collectif dispose de la variable
+  `show_price` ; un gabarit personnalisé qui l'ignore reçoit de toute
+  façon un `price` vide. Le même bouton figure dans le formulaire de
+  création / modification, à côté du champ Prix, et le réglage s'y
+  enregistre avec la mission. La duplication d'un OM le conserve.
+- **Envoyer l'itinéraire** : sur la fiche d'un OM déjà envoyé à son
+  chauffeur, un bouton envoie le lien Google Maps de la mission **en
+  réponse à cet email-là** (même objet précédé de « Re: »), pour que le
+  chauffeur retrouve les deux au même endroit dans sa boîte. Le bouton ne
+  dépend pas de la case « Envoyer l'itinéraire » de la fiche du chauffeur,
+  qui ne règle que la ligne ajoutée d'office à l'ordre de mission.
+- **Trois onglets sur la liste des OM** : *À venir*, *Missions passées* et
+  *Missions archivées*. Les envois par email ne sont proposés que sur les
+  missions à venir ; l'onglet des missions passées offre à la place un
+  bouton **Archiver** (contour orange) qui range la sélection dans l'onglet
+  *Missions archivées*, d'où **Désarchiver** la ramène. Rien n'est supprimé
+  (colonne `missions.archived_at`), et le planning continue d'afficher les
+  missions archivées.
+- **Menus déroulants** : *Ressources* réunit **Personnel** et
+  **Véhicules**, *Tiers* réunit **Clients** et **Partenaires**. Ce ne sont
+  que des regroupements de la barre de navigation — les quatre écrans
+  restent distincts. La pastille d'alerte des contrôles techniques
+  remonte sur « Ressources » tant que le menu est replié.
+- **Partenaires** : les agences d'intérim (nom, téléphone, email, modèle
+  d'email). Une fiche *Personnel* se rattache à l'une d'elles par son champ
+  « Intérim ». C'est cette agence qui fournit le destinataire et le texte
+  pré-remplis du bouton « Envoyer à l'intérim » de la liste des ordres de
+  mission — il n'y a plus d'adresse figée dans le `.env`. Le modèle accepte
+  trois marqueurs : `{noms}` (les chauffeurs concernés), `{missions}` (le
+  récapitulatif dates / horaires) et `{societe}`. Objet et message restent
+  modifiables avant chaque envoi. Quand la sélection couvre **plusieurs
+  agences**, les missions sont regroupées par agence : **un email par
+  agence**, avec seulement ses propres ordres de mission en pièces jointes.
+  Une mission dont le chauffeur n'a pas d'intérim n'a pas de destinataire :
+  le bouton disparaît de sa fiche, et se désactive dans la liste dès qu'une
+  telle mission est cochée (en nommant lesquelles).
+  Chaque agence part indépendamment — l'échec de l'une n'empêche pas les
+  autres, et seules les missions réellement envoyées sont marquées.
 - **Ordres de mission** : un formulaire unique avec les **arrêts du Billet
   Collectif** (prises en charge / déposes, adresses, horaires, voyageurs) et
   les **trajets de l'Ordre de Mission** (début / fin / véhicule / trajet),
@@ -73,7 +117,10 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   personnalisable sur la fiche chauffeur), clic sur une mission → son ordre
   de mission, et un œil sur chaque élément en ouvre le PDF dans un panneau
   flottant, sans quitter le planning. Les filtres sont repliés tant qu'aucun
-  n'est actif. Flux **iCalendar** partageable (tout le monde, ou un
+  n'est actif. Dans la grille, la largeur d'un jour s'ajuste en tirant le
+  bord de son en-tête (au doigt comme à la souris) ; les colonnes reprennent
+  des largeurs égales au rechargement, au changement de semaine, ou d'un
+  double-clic sur la poignée. Flux **iCalendar** partageable (tout le monde, ou un
   chauffeur seul) : « Partager le calendrier » donne un bouton par agenda —
   Google Agenda (le chemin à suivre aussi pour Samsung Calendar et les autres
   agendas Android, via le compte Google du téléphone), Calendrier iPhone, et
@@ -94,6 +141,19 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   durées de trajet, en avant comme en arrière ; la dernière heure saisie à
   la main fait référence. Saisie libre, affichage sur 24 heures à la mode de
   l'application : « 6 », « 630 », « 6:30 » ou « 6h30 » donnent tous « 06h30 ».
+  **Navettes** (section du bas, indépendante de l'itinéraire ci-dessus) : des
+  points de ramassage avec leur nombre de voyageurs, une destination commune
+  et son heure d'arrivée, des navettes de N places (8 par défaut). Priorités,
+  dans cet ordre : remplir les navettes au maximum, donc en avoir le moins
+  possible, puis raccourcir les trajets. Chacune reçoit son ordre de passage
+  le plus court jusqu'à la destination, les heures de ramassage déduites à
+  rebours de l'heure d'arrivée, le tracé sur une carte (une couleur par navette) et un lien de
+  navigation. La répartition se fait à vol d'oiseau (aucune clé requise) ;
+  les distances, durées et heures affichées, elles, viennent de la route.
+  Un sélecteur **« Itinéraires »** choisit qui les calcule, pour les deux
+  sections de l'écran : **Google Maps** (dans le navigateur) ou **TomTom**
+  (côté serveur, trafic du moment — sa clé ne sort pas du serveur). Le choix
+  est gardé par l'appareil, et grisé s'il manque la clé correspondante.
 - **Mode sombre** : bouton lune / soleil dans la barre du haut. Par défaut,
   l'application suit le réglage clair / sombre de l'appareil ; le choix fait
   avec le bouton est mémorisé par le navigateur (donc par appareil).
@@ -126,12 +186,16 @@ crew           personnel : chauffeurs et autres (+ accès appli :
 vehicles       véhicules (+ suivi : contrôle technique, entretien, km)
 clients        donneurs d'ordre, réutilisables
 templates      gabarits OM/BC (type, html, version, actif)
-missions       un ordre de mission (chauffeur, date, motif, client, statut...)
+missions       un ordre de mission (chauffeur, date, motif, client, statut,
+               archived_at : rangée dans l'onglet « Missions archivées »)
 mission_legs   lignes du tableau « Mission » de l'OM
 mission_stops  lignes du tableau du BC
 attachments    fichiers joints (contenu binaire + position d'insertion)
-email_log      historique des envois
+email_log      historique des envois (+ message_id : l'en-tête posé à
+               l'envoi, pour répondre dans le fil — voir email_service.py)
 mission_links  missions liées (chaque lien écrit dans les deux sens)
+partners       agences d'intérim : coordonnées + modèle d'email de l'envoi
+               groupé. Rattachées au personnel par crew.partner_id
 ```
 
 Détail complet dans `app/db.py` (`SCHEMA_STATEMENTS`).
@@ -168,6 +232,7 @@ Dans *Project → Settings → Environment Variables* :
 | `SMTP_AUTH_METHOD` | `basic` (ou `oauth2_o365`) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | identifiants SMTP |
 | `SMTP_FROM_NAME` / `SMTP_FROM_EMAIL` | expéditeur affiché |
+| `PAUSE_LABELS` | libellés proposés pour un trajet « (pause) » du formulaire d'OM, séparés par des `\|` (et non des virgules : un libellé peut en contenir une). Vide = saisie libre. Défaut : `Pause + Attente Clients\|Pause 15 min\|Pause 30 min` |
 | `COMPANY_*`, `OM_LEGAL_REF`, `BC_LEGAL_REF` | si différent des valeurs par défaut (voir `.env.example`) |
 
 ### Microsoft 365 / Exchange Online (`SMTP_AUTH_METHOD=oauth2_o365`)
@@ -188,10 +253,25 @@ donc rien à changer à la posture de sécurité du tenant.
 3. **Certificates & secrets → New client secret** → copiez la **Value**
    tout de suite (affichée une seule fois).
 4. **API permissions → Add a permission → Microsoft Graph** →
-   **Application permissions** → cherchez et cochez **`Mail.Send`** →
-   Add → puis **Grant admin consent** (nécessite un rôle Admin global).
+   **Application permissions** → cochez **`Mail.Send`** *et*
+   **`Mail.ReadWrite`** → Add → puis **Grant admin consent** (nécessite un
+   rôle Admin global).
    *(Ne pas confondre avec l'API « Office 365 Exchange Online » /
    `SMTP.SendAsApp` — ce n'est pas celle-là qu'il faut.)*
+
+   `Mail.ReadWrite` sert au rangement des envois : l'application prépare
+   un brouillon, l'envoie, puis déplace la copie de « Éléments envoyés »
+   vers le dossier **Planning KENT** (`email_service.SENT_FOLDER_NAME`),
+   créé au premier envoi. Deux bénéfices : les envois automatiques ne se
+   mélangent pas aux envois faits à la main depuis Outlook — une
+   stratégie de rétention peut vider ce seul dossier — et le bouton
+   « Envoyer l'itinéraire » peut répondre au message d'origine
+   (`createReply`), ce qui regroupe les deux emails dans la boîte du
+   chauffeur.
+
+   Sans cette permission, l'application se rabat automatiquement sur
+   l'ancien envoi direct (`sendMail`, sans copie ni fil) : les emails
+   partent quand même.
 5. *(Recommandé)* Restreindre l'app à une seule boîte mail plutôt que
    tout le tenant, via une Application Access Policy (Exchange Online
    PowerShell — s'applique aussi à Graph `sendMail`) :
@@ -199,7 +279,16 @@ donc rien à changer à la posture de sécurité du tenant.
    New-DistributionGroup -Name "KentGraphSenders" -Members expediteur@votredomaine.com
    New-ApplicationAccessPolicy -AppId <client-id> -PolicyScopeGroupId KentGraphSenders@votredomaine.com -AccessRight RestrictAccess -Description "Limite l'appli à l'expéditeur"
    ```
-6. Variables (Vercel ou `.env`) :
+   Cette restriction prend d'autant plus d'importance avec
+   `Mail.ReadWrite`, qui donne sinon accès en lecture/écriture à **toutes**
+   les boîtes du tenant.
+7. *(Facultatif)* Purger automatiquement le dossier **Planning KENT** :
+   dans Outlook, clic droit sur le dossier → **Affecter une stratégie**,
+   et choisir une balise de rétention « Supprimer après N jours ». Les
+   balises se créent dans le portail Purview (*Data Lifecycle Management →
+   Exchange (hérité) → Balises de rétention MRM*). La balise ne porte que
+   sur ce dossier : « Éléments envoyés » n'est pas touché.
+8. Variables (Vercel ou `.env`) :
    ```
    SMTP_AUTH_METHOD=oauth2_o365
    O365_TENANT_ID=<Directory (tenant) ID>
@@ -213,6 +302,10 @@ donc rien à changer à la posture de sécurité du tenant.
 Limite : pièces jointes inline via `sendMail` plafonnées à ~4 Mo au total
 par message (au-delà, erreur claire plutôt qu'un envoi tronqué) — largement
 suffisant pour un ordre de mission, à surveiller si beaucoup de pièces jointes lourdes.
+
+Les envois ne laissent **pas** de copie dans « Éléments envoyés » de la boîte
+expéditrice (`saveToSentItems: false`) : ils sont automatiques et nombreux, et
+l'historique est déjà tenu par l'application (onglet Historique de la mission).
 
 > **Protection de déploiement** : si l'authentification Vercel (Deployment
 > Protection) est active, l'appel interne Flask → `/api/render_pdf` est

@@ -276,7 +276,12 @@ def build_bc_context(mission):
         "driver_name": f"{driver['last_name']} {driver['first_name']}",
         "stops": stop_ctx,
         "passenger_count": _default_passenger_count(stops),
-        "price": mission.get("price") or "",
+        # Prix masqué : vidé de la variable, et `show_price` permet au
+        # gabarit de retirer la ligne entière (le gabarit livré le fait).
+        # Les deux, pour qu'un gabarit personnalisé plus ancien, qui ne
+        # connaît pas `show_price`, n'affiche au moins aucun montant.
+        "price": "" if mission.get("price_hidden") else (mission.get("price") or ""),
+        "show_price": not mission.get("price_hidden"),
         "client": _bc_client(mission),
         "emission_date_label": fmt_date_long(mission.get("emission_date") or mission["mission_date"]),
     }
