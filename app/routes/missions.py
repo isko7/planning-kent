@@ -23,8 +23,8 @@ from app.utils import (
     DEFAULT_PARTNER_EMAIL_BODY, DEFAULT_PARTNER_EMAIL_SUBJECT, _fold,
     balance_passenger_counts, day_label, fmt_date_full, fmt_date_long, fmt_date_short,
     fmt_hours_minutes, fmt_time, is_depot, is_valid_time, legs_distance_summary,
-    legs_time_summary, normalize_time, now_paris, service_time_range, shuttle_number,
-    split_address_city, split_emails,
+    legs_time_summary, normalize_time, now_paris, parse_iso_date, service_time_range,
+    shuttle_number, split_address_city, split_emails,
 )
 
 bp = Blueprint("missions", __name__, url_prefix="/missions")
@@ -168,6 +168,11 @@ def _check_form(data):
     soit, pour ne pas créer une mission à qui il manquerait sa pièce."""
     if not data["driver_id"] or not data["mission_date"]:
         return "Chauffeur et date de mission sont obligatoires.", None
+    # Le champ est un input[type=date], donc déjà au format ISO — sauf envoi
+    # forgé ou navigateur exotique. On refuse plutôt que d'enregistrer une
+    # date que plus aucun écran ne saura relire (utils.parse_iso_date).
+    if not parse_iso_date(data["mission_date"]):
+        return "Date de mission illisible : attendu JJ/MM/AAAA.", None
     try:
         return None, _read_attachment(request.form, request.files)
     except ValueError as e:

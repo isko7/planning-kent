@@ -56,11 +56,18 @@ def _parse_page_spec(spec: str, n_pages: int) -> list:
         part = part.strip()
         if not part:
             continue
-        if "-" in part:
-            a, b = part.split("-", 1)
-            a, b = int(a), int(b)
-        else:
-            a = b = int(part)
+        # Le champ est du texte libre (il est normalement rempli par les
+        # miniatures PDF.js) : une saisie hors format doit se lire, pas
+        # remonter le message de int().
+        try:
+            if "-" in part:
+                a, b = part.split("-", 1)
+                a, b = int(a), int(b)
+            else:
+                a = b = int(part)
+        except ValueError:
+            raise ValueError(
+                f"« {part} » n'est pas un numéro de page (attendu : 1,3,5-7)") from None
         for p in range(min(a, b), max(a, b) + 1):
             if 1 <= p <= n_pages:
                 indexes.add(p - 1)

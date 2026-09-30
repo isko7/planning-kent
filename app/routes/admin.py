@@ -12,6 +12,8 @@ Si SEED_SECRET n'est pas défini, la route répond 404.
 import time
 import traceback
 
+import secrets
+
 from flask import Blueprint, request, jsonify, abort
 
 from app.config import env
@@ -26,7 +28,11 @@ def _require_secret():
     secret = env("SEED_SECRET")
     if not secret:
         abort(404)
-    if request.args.get("key") != secret:
+    # Comparaison à temps constant : un « != » sur une chaîne s'arrête au
+    # premier caractère différent, et le temps de réponse renseigne alors sur
+    # le secret. C'est théorique derrière le réseau, mais c'est la manière
+    # d'écrire une comparaison de secret.
+    if not secrets.compare_digest(request.args.get("key") or "", secret):
         abort(403)
 
 

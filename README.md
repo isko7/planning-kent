@@ -248,7 +248,7 @@ véhicules, clients et missions.
 |---|---|---|
 | Hébergement | **Vercel** | `api/index.py` sert l'app Flask (WSGI) ; `vercel.json` réécrit toutes les routes vers cette fonction. |
 | Serveur web | **Flask** | Pas de build front : pages en Jinja2 + JS vanilla. |
-| Base de données | **MySQL** (`PyMySQL`, pur Python) | Connexion via `DATABASE_URL`. Schéma dans `app/db.py`, accès aux données isolé dans `app/repo.py`. |
+| Base de données | **MySQL** (`PyMySQL`, pur Python) | Connexion via `DATABASE_URL`. Schéma dans `app/db.py`, accès aux données isolé dans `app/repo.py`. Une seule connexion, gardée chaude d'une requête à l'autre (la poignée de main TLS vers TiDB coûte cher) et **prêtée à un thread à la fois** : PyMySQL n'est pas sûr entre threads, deux requêtes simultanées mélangeaient leurs paquets sur la même socket. |
 | Templates OM/BC | **HTML + Jinja2**, stockés en base (table `templates`) | Éditables depuis l'interface. |
 | HTML → PDF | **Chrome headless** (`api/render_pdf.js`, `@sparticuz/chromium`) | 2ᵉ fonction serverless Node, appelée en HTTP interne par Flask. Les règles CSS `@page` des templates sont respectées (`preferCSSPageSize`). En local : `wkhtmltopdf`. |
 | Fusion OM + PJ + BC | **pypdf** | Les pièces jointes sont stockées en base (`LONGBLOB`). |

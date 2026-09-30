@@ -148,7 +148,9 @@ window.KentCalc = (function () {
   function formatNumber(value) {
     if (value === 0) return "0";
     const abs = Math.abs(value);
-    if (abs >= 1e15 || abs < 1e-9) return String(value).replace(".", ",").replace("e", "e");
+    // Trop grand ou trop petit pour être lisible en entier : notation
+    // scientifique, telle que JavaScript l'écrit (1e+21).
+    if (abs >= 1e15 || abs < 1e-9) return String(value).replace(".", ",");
     const text = String(value);
     const [int, dec] = text.split(".");
     const sign = int.startsWith("-") ? "-" : "";

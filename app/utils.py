@@ -79,12 +79,22 @@ MONTHS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
 
 
 def parse_iso_date(value):
-    """'2026-09-15' -> date(2026, 9, 15). Accepte aussi un objet date/None."""
+    """'2026-09-15' -> date(2026, 9, 15). Accepte aussi un objet date/None.
+
+    None pour tout ce qui n'est pas une date ISO, plutôt qu'une exception :
+    c'est ce que supposent déjà tous les appelants (« ... if d else "" »).
+    Une date abîmée — saisie au format français par un POST forgé, reprise
+    d'un import — ne doit pas faire tomber en erreur 500 les écrans qui
+    l'affichent, à commencer par le formulaire qui permettrait de la
+    corriger. Elle apparaît vide, et se ressaisit."""
     if not value:
         return None
     if isinstance(value, date):
         return value
-    return datetime.strptime(value[:10], "%Y-%m-%d").date()
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
 
 
 def now_paris():
@@ -278,6 +288,16 @@ def is_depot(text):
 #   BAN     « 12 Rue du Grand Faubourg 28000 Chartres »
 #   Google  « 12 Rue du Grand Faubourg, 28000 Chartres, France »
 #   saisie  « 12 rue du Grand Faubourg, Chartres »
+# Mots par lesquels commence un complément de lieu, pas une commune. Sans
+# eux, « 12 rue des Fleurs, Bâtiment B » ferait de « Bâtiment B » une ville :
+# mieux vaut une colonne Ville vide, que l'on complète à la main, qu'une
+# fausse commune recopiée sur le Billet Collectif et dans les trajets.
+_NOT_A_CITY = {
+    "batiment", "bat", "immeuble", "residence", "terminal", "terminaux",
+    "hall", "porte", "entree", "escalier", "etage", "appartement", "appt",
+    "lot", "zone", "zi", "za", "parking", "quai", "aile", "niveau", "bp", "cs",
+}
+
 _COUNTRY_SUFFIX = re.compile(r",\s*France\s*$", re.IGNORECASE)
 _POSTAL_CITY = re.compile(r"^(?P<street>.*?)[\s,]+(?P<postcode>\d{5})\s+(?P<city>[^,]+)$")
 _LEADING_POSTCODE = re.compile(r"^\d{5}\s+")
@@ -301,9 +321,19 @@ def split_address_city(text):
         return m.group("street").strip(" ,"), m.group("city").strip()
     street, sep, city = value.rpartition(",")
     city = _LEADING_POSTCODE.sub("", city.strip())
-    if sep and city and not re.search(r"\d", city):
+    if sep and _looks_like_city(city):
         return street.strip(" ,"), city
     return value, ""
+
+
+def _looks_like_city(text):
+    """Ce qui suit la dernière virgule peut-il être une commune ? Un chiffre
+    (« Terminal 3 ») ou un mot de complément de lieu (« Bâtiment B ») dit que
+    non. Ce n'est qu'un garde-fou : le doute profite à l'adresse entière."""
+    if not text or re.search(r"\d", text):
+        return False
+    premier = (_fold(text).split() or [""])[0].strip(".")
+    return premier not in _NOT_A_CITY
 
 
 def fmt_week_range(monday):

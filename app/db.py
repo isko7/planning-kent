@@ -11,6 +11,7 @@ la ré-ouvre si elle est tombée).
 couche d'accès aux données lisible et portable. Aucune requête de `repo.py`
 ne contient de `?` ou de `%` littéral, la traduction est donc sûre.
 """
+import threading
 from contextlib import contextmanager
 
 import pymysql
@@ -425,6 +426,35 @@ def check_connection():
 
 _conn = None
 
+# La connexion est unique et partagée par tout le processus. PyMySQL n'est
+# pas sûr entre threads : une socket MySQL porte une requête à la fois, et
+# deux threads qui s'en servent ensemble mélangent leurs paquets — la
+# connexion se ferme sous les pieds des deux (InterfaceError « (0, '') »),
+# et l'un des deux se retrouve déconnecté de l'application. Un serveur
+# serverless n'exécute qu'une invocation à la fois par instance, ce qui
+# masque le problème en production ; le serveur de développement, lui, sert
+# les requêtes en parallèle (run.py, threaded=True), et une page qui en
+# déclenche plusieurs d'un coup (le récap kilométrique du formulaire OM)
+# tombe systématiquement dessus.
+#
+# On garde une seule connexion — c'est ce qui évite de repayer la poignée de
+# main TLS vers TiDB à chaque requête, et le nombre de connexions y est
+# compté — mais on n'y laisse entrer qu'un thread à la fois. Un verrou
+# réentrant : deux blocs get_db() imbriqués dans le même thread se bloqueraient
+# eux-mêmes (il n'y en a aucun aujourd'hui, autant que ça le reste sans
+# provoquer d'interblocage).
+_lock = threading.RLock()
+
+
+@contextmanager
+def _connection():
+    """La connexion partagée, un thread à la fois. Tout ce qui s'en sert
+    passe par ici : `get_db()` pour les requêtes, `init_db()` pour le schéma
+    — celui-ci la garde le temps de ses migrations, pendant lesquelles une
+    requête entrante attend plutôt que de casser la connexion."""
+    with _lock:
+        yield _get_conn()
+
 
 def _get_conn():
     global _conn
@@ -474,17 +504,18 @@ class _Cursor:
 @contextmanager
 def get_db():
     """`with get_db() as db:` puis db.execute(...). Commit auto en sortie,
-    rollback si exception. La connexion reste ouverte (réutilisée à chaud)."""
-    conn = _get_conn()
-    cur = conn.cursor()
-    try:
-        yield _Cursor(cur)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
+    rollback si exception. La connexion reste ouverte (réutilisée à chaud) et
+    n'est prêtée qu'à un thread à la fois (voir _connection)."""
+    with _connection() as conn:
+        cur = conn.cursor()
+        try:
+            yield _Cursor(cur)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
 
 
 _initialized = False
@@ -500,9 +531,8 @@ def init_db(force=False, report=False):
     if _initialized and not force:
         return [] if report else None
     import time
-    conn = _get_conn()
     timings = []
-    with conn.cursor() as cur:
+    with _connection() as conn, conn.cursor() as cur:
         for renamed in _rename_legacy_tables(cur):
             timings.append({"migration": f"RENAME TABLE {renamed}", "ms": 0})
         for stmt in SCHEMA_STATEMENTS:
@@ -522,6 +552,6 @@ def init_db(force=False, report=False):
         created = _seed_partners(cur)
         if created:
             timings.append({"migration": f"{created} agences d'interim creees", "ms": 0})
-    conn.commit()
+        conn.commit()
     _initialized = True
     return timings if report else None

@@ -204,7 +204,8 @@ def calendar_feed():
     correspond pas."""
     if not CALENDAR_FEED_TOKEN:
         abort(404)
-    if request.args.get("token") != CALENDAR_FEED_TOKEN:
+    # Comparaison à temps constant, comme pour SEED_SECRET (routes/admin.py).
+    if not secrets.compare_digest(request.args.get("token") or "", CALENDAR_FEED_TOKEN):
         abort(403)
 
     driver_id = request.args.get("driver_id", type=int)
