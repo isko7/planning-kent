@@ -272,6 +272,40 @@ def is_depot(text):
     return _fold(text) == _fold(DEPOT_LABEL)
 
 
+# Une adresse d'une seule ligne (celle du Plan de Ramassage, ou une
+# suggestion d'autocomplétion) vers les deux colonnes d'un arrêt de Billet
+# Collectif. Les fournisseurs n'écrivent pas pareil :
+#   BAN     « 12 Rue du Grand Faubourg 28000 Chartres »
+#   Google  « 12 Rue du Grand Faubourg, 28000 Chartres, France »
+#   saisie  « 12 rue du Grand Faubourg, Chartres »
+_COUNTRY_SUFFIX = re.compile(r",\s*France\s*$", re.IGNORECASE)
+_POSTAL_CITY = re.compile(r"^(?P<street>.*?)[\s,]+(?P<postcode>\d{5})\s+(?P<city>[^,]+)$")
+_LEADING_POSTCODE = re.compile(r"^\d{5}\s+")
+
+
+def split_address_city(text):
+    """« 12 Rue du Grand Faubourg 28000 Chartres » -> ('12 Rue du Grand
+    Faubourg', 'Chartres'). Le code postal n'a pas de colonne sur un arrêt :
+    il sert de repère puis disparaît.
+
+    Sans code postal, c'est la dernière virgule qui sépare — mais seulement
+    si ce qui suit peut être une commune : « Aéroport Roissy CDG, Terminal 3 »
+    reste une adresse entière, faute de quoi le terminal passerait pour une
+    ville. Rien de reconnaissable : tout va dans l'adresse, la ville reste
+    vide (le libellé de trajet s'en accommode, voir mission_form.js)."""
+    value = _COUNTRY_SUFFIX.sub("", (text or "").strip()).strip(" ,")
+    if not value:
+        return "", ""
+    m = _POSTAL_CITY.match(value)
+    if m:
+        return m.group("street").strip(" ,"), m.group("city").strip()
+    street, sep, city = value.rpartition(",")
+    city = _LEADING_POSTCODE.sub("", city.strip())
+    if sep and city and not re.search(r"\d", city):
+        return street.strip(" ,"), city
+    return value, ""
+
+
 def fmt_week_range(monday):
     """date du lundi -> '14 – 20 septembre 2026' (gère mois/année différents
     entre le lundi et le dimanche de la même semaine, ex. 'décembre 2026'

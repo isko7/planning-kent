@@ -175,10 +175,22 @@
                   title="Réordonne les arrêts pour que le trajet soit le plus court possible">⚡ Calculer l'itinéraire le plus court</button>
           <a class="btn btn--blue" id="tour-maps-link" href="#" target="_blank" rel="noopener" hidden>
             Ouvrir dans Google Maps</a>
+          {# Le formulaire qui porte les arrêts est plus bas, hors de cette
+             rangée (il ne doit pas en devenir un élément flex) : l'attribut
+             form rattache le bouton malgré la distance. #}
+          <button type="submit" class="btn btn--secondary" id="tour-om" form="tour-om-form" hidden
+                  title="Créer un ordre de mission avec ces arrêts, dans cet ordre">➕ Créer OM</button>
           <button type="button" class="btn btn--secondary" id="tour-copy" hidden>Copier la liste</button>
           <button type="button" class="btn btn--ghost" id="tour-clear">Vider la liste</button>
           <span class="hint" id="tour-copy-status"></span>
         </div>
+
+        {# « Créer OM » : les adresses et les heures affichées partent en
+           champs cachés, posés par tours.js au moment du clic (l'ordre peut
+           avoir changé depuis le calcul). Une soumission ordinaire, pas un
+           fetch : c'est une navigation vers le formulaire de création. #}
+        <form method="post" id="tour-om-form" hidden
+              action="{{ url_for('missions.new_mission_from_tour') }}"></form>
 
         <div class="tour-status" id="tour-status" hidden></div>
         <div class="legs-summary" id="tour-summary" hidden></div>
@@ -187,7 +199,10 @@
           La liste est conservée sur cet appareil jusqu'à ce que vous la vidiez.<br>
           <strong>Heures</strong> : saisissez-en une seule — celle du départ, de l'arrivée ou de
           n'importe quel arrêt — et le calcul remplit les autres d'après les durées de trajet.
-          La dernière heure saisie à la main fait référence.</div>
+          La dernière heure saisie à la main fait référence.<br>
+          <strong>Créer OM</strong> : les arrêts partent dans un nouvel ordre de mission, avec leur
+          heure de passage — le dernier en dépose, les autres en prise en charge, le dépôt mis de
+          côté. Rien n'est enregistré tant que vous n'avez pas validé le formulaire.</div>
       </div>
 
       <div class="card">

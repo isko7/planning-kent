@@ -20,10 +20,11 @@ from app.routing import (estimate_route, format_duration, add_minutes,
                          RoutingError)
 from app.routes.settings import get_address_search_provider
 from app.utils import (
-    DEFAULT_PARTNER_EMAIL_BODY, DEFAULT_PARTNER_EMAIL_SUBJECT,
+    DEFAULT_PARTNER_EMAIL_BODY, DEFAULT_PARTNER_EMAIL_SUBJECT, _fold,
     balance_passenger_counts, day_label, fmt_date_full, fmt_date_long, fmt_date_short,
-    fmt_hours_minutes, fmt_time, is_valid_time, legs_distance_summary, legs_time_summary,
-    normalize_time, now_paris, service_time_range, shuttle_number, split_emails,
+    fmt_hours_minutes, fmt_time, is_depot, is_valid_time, legs_distance_summary,
+    legs_time_summary, normalize_time, now_paris, service_time_range, shuttle_number,
+    split_address_city, split_emails,
 )
 
 bp = Blueprint("missions", __name__, url_prefix="/missions")
@@ -315,15 +316,76 @@ def new_mission():
         flash("Ordre de mission créé.", "success")
         return (_created_return_redirect(mission_id)
                 or redirect(url_for("missions.detail_mission", mission_id=mission_id)))
-    return render_template("missions/form.html", is_new=True, **_form_context({
+    return render_template("missions/form.html", is_new=True,
+                           **_form_context(_blank_mission()))
+
+
+def _blank_mission(stops=None):
+    """Mission vierge du formulaire de création. `stops` ouvre le formulaire
+    avec des arrêts déjà posés — ceux d'un itinéraire du Plan de Ramassage."""
+    return {
         "status": "brouillon", "motif": "Transport Occasionnel",
         "driver_id": None, "client_id": None, "om_template_id": None, "bc_template_id": None,
         "mission_date": "", "mission_name": "", "emission_date": now_paris().date().isoformat(),
         "shuttle_label": "", "price": "", "remarks": "",
         "bc_client_name": "", "bc_client_address": "", "bc_client_postal_code": "",
         "bc_client_city": "", "bc_client_phone": "",
-        "legs": [], "stops": [],
-    }))
+        "legs": [], "stops": stops or [],
+    }
+
+
+def _is_depot_stop(address):
+    """Le dépôt n'est pas un arrêt de voyageurs : le Plan de Ramassage le
+    propose (bouton « + Dépôt KENT ») pour boucler l'itinéraire, mais sur un
+    ordre de mission ce sont les trajets qui en partent et y reviennent."""
+    return is_depot(address) or _fold(address) == _fold(DEPOT_ADDRESS)
+
+
+def _tour_stops(form):
+    """Arrêts du Billet Collectif repris d'un itinéraire du Plan de
+    Ramassage : une adresse et une heure de passage par ligne, dans l'ordre
+    affiché à l'écran.
+
+    - l'adresse d'une ligne est en un seul morceau, les deux colonnes de
+      l'arrêt sont séparées ici (split_address_city) ;
+    - le dernier arrêt est proposé en dépose et les autres en prise en
+      charge : la forme d'un ramassage, qui fait aussi porter la somme des
+      voyageurs à la dépose (balance_passenger_counts). Rien n'est figé, le
+      type se change d'un menu sur chaque ligne ;
+    - la date reste vide : elle suit celle de la mission, qui n'est pas
+      encore choisie (mission_form.js:syncStopDates)."""
+    addresses = form.getlist("tour_address[]")
+    times = form.getlist("tour_time[]")
+    stops = []
+    for i, raw in enumerate(addresses):
+        address = (raw or "").strip()
+        if not address or _is_depot_stop(address):
+            continue
+        street, city = split_address_city(address)
+        stops.append({
+            "stop_type": "prise_en_charge",
+            "stop_date": "", "stop_time": normalize_time(_at(times, i).strip()),
+            "address": street, "city": city, "passenger_count": 1,
+        })
+    if len(stops) > 1:
+        stops[-1]["stop_type"] = "depose"
+    return stops
+
+
+@bp.route("/nouveau-depuis-plan", methods=["POST"])
+def new_mission_from_tour():
+    """Bouton « Créer OM » du Plan de Ramassage : ouvre le formulaire de
+    création avec l'itinéraire calculé en arrêts. Rien n'est enregistré — la
+    mission n'existera qu'une fois le formulaire validé, chauffeur et date
+    renseignés."""
+    stops = _tour_stops(request.form)
+    if not stops:
+        flash("Aucune adresse à reprendre : calculez d'abord un itinéraire.", "error")
+        return redirect(url_for("tours.planner_view"))
+    flash(f"{len(stops)} arrêts repris du Plan de Ramassage. "
+          "Complétez le chauffeur et la date, puis enregistrez.", "success")
+    return render_template("missions/form.html", is_new=True,
+                           **_form_context(_blank_mission(stops)))
 
 
 def _own_driver_id():

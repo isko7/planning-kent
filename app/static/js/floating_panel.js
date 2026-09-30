@@ -20,6 +20,11 @@ window.KentFloat = window.KentFloat || (function () {
   function create(options) {
     const opts = Object.assign({
       name: "", label: "", className: "", storageKey: null, widthRatio: 0.45, maxWidth: 640,
+      // Taille de départ, quand rien n'a encore été mémorisé. Par défaut le
+      // panneau prend une part de la largeur et toute la hauteur utile —
+      // c'est ce que veut un document. Un panneau qui a sa taille propre (la
+      // calculatrice) la donne ici.
+      width: null, height: null,
       onClose() {}, onResize() {},
     }, options);
 
@@ -53,8 +58,11 @@ window.KentFloat = window.KentFloat || (function () {
         const g = JSON.parse(localStorage.getItem(opts.storageKey));
         if (g && ["left", "top", "width", "height"].every((k) => typeof g[k] === "number")) return g;
       } catch (e) { /* rien de mémorisé */ }
-      const width = Math.min(opts.maxWidth, Math.round(window.innerWidth * opts.widthRatio));
-      return { left: window.innerWidth - width - 20, top: 80, width, height: window.innerHeight - 100 };
+      const full = window.innerHeight - 100;
+      const width = Math.min(opts.width || Math.round(window.innerWidth * opts.widthRatio),
+                             opts.maxWidth, window.innerWidth - 40);
+      const height = Math.min(opts.height || full, full);
+      return { left: window.innerWidth - width - 20, top: 80, width, height };
     }
     function remember() {
       const r = panel.getBoundingClientRect();

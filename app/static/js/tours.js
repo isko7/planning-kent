@@ -26,6 +26,7 @@ const summaryEl = document.getElementById("tour-summary");
 const statusEl = document.getElementById("tour-status");
 const mapsLink = document.getElementById("tour-maps-link");
 const copyButton = document.getElementById("tour-copy");
+const omButton = document.getElementById("tour-om");
 const mapNote = document.getElementById("tour-map-note");
 
 const MAX_STOPS = parseInt(page.dataset.maxStops, 10) || 25;
@@ -309,6 +310,7 @@ function setSummary(parts) {
   // Les actions du résultat n'ont de sens qu'une fois l'itinéraire calculé.
   mapsLink.hidden = !parts.length;
   copyButton.hidden = !parts.length;
+  omButton.hidden = !parts.length;
 }
 
 // « 87,4 km » en gras suivi de son libellé : de quoi lire le récap d'un
@@ -698,6 +700,26 @@ function updateMapsLink() {
     : "Ouvrir cet itinéraire dans Google Maps (navigation)";
 }
 
+// Arrêts envoyés au formulaire de création d'un ordre de mission. Remplis au
+// moment de la soumission et non au calcul : entre les deux, un arrêt a pu
+// être déplacé, renommé ou supprimé — c'est la liste affichée qui fait foi.
+function fillOmForm() {
+  const form = document.getElementById("tour-om-form");
+  form.textContent = "";
+  filledRows().forEach((row) => {
+    form.appendChild(hiddenField("tour_address[]", addressOf(row)));
+    form.appendChild(hiddenField("tour_time[]", timeOf(row)));
+  });
+}
+
+function hiddenField(name, value) {
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = name;
+  input.value = value;
+  return input;
+}
+
 function copyList() {
   const status = document.getElementById("tour-copy-status");
   const text = filledRows().map((row, index) => `${index + 1}. ${timeOf(row) ? timeOf(row) + " — " : ""}${addressOf(row)}`).join("\n");
@@ -842,6 +864,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("tour-trace").addEventListener("click", traceCurrentOrder);
   document.getElementById("tour-clear").addEventListener("click", clearAll);
   document.getElementById("tour-copy").addEventListener("click", copyList);
+  // submit et non click : la soumission passe par le formulaire, y compris
+  // au clavier (Entrée sur le bouton).
+  document.getElementById("tour-om-form").addEventListener("submit", fillOmForm);
 
   // Délégation : les lignes apparaissent et disparaissent au fil de la saisie.
   listEl.addEventListener("click", (e) => {

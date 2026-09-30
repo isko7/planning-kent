@@ -1127,6 +1127,77 @@ input.linked-dialog__filter { width: auto; margin: 0 20px 12px; }
 }
 .float-panel__body .hint { margin: 6px 2px; font-size: 13px; color: var(--muted); }
 .float-panel__body .hint.is-error { color: var(--err-text); font-weight: 700; }
+/* ------------------------------------------------------- calculatrice */
+/* Panneau flottant à part : hauteur fixe, rien à faire défiler sauf
+   l'historique. Le clavier reste toujours entier en bas. */
+.float-panel--calc .float-panel__body { overflow: hidden; background: var(--surface); }
+.calc { display: flex; flex-direction: column; height: 100%; padding: 10px; gap: 8px; }
+
+/* Historique : la partie qui s'étire quand on agrandit le panneau. */
+.calc__history {
+  flex: 1; min-height: 60px; display: flex; flex-direction: column;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-alt);
+}
+.calc__history-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line);
+}
+.calc__history-clear {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font: inherit; text-transform: none; letter-spacing: 0; padding: 0;
+}
+.calc__history-clear:hover { color: var(--err-text); text-decoration: underline; }
+.calc__history-list { flex: 1; overflow: auto; margin: 0; padding: 4px; list-style: none; }
+.calc__history-item {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px; width: 100%;
+  padding: 5px 8px; border: 0; border-radius: var(--radius); background: transparent;
+  cursor: pointer; font: inherit; text-align: right;
+}
+.calc__history-item:hover { background: var(--hover); }
+.calc__history-expr { font-size: 12px; color: var(--muted); }
+.calc__history-result { font-size: 15px; font-weight: 700; color: var(--ink); }
+/* Le mode d'emploi ne s'affiche que tant que l'historique est vide. */
+.calc__history-empty { display: none; padding: 10px; font-size: 12px; color: var(--muted); }
+.calc__history.is-empty .calc__history-list { display: none; }
+.calc__history.is-empty .calc__history-empty { display: block; }
+
+/* L'opération, puis son résultat en direct. */
+.calc__display { flex: none; padding: 2px 4px; }
+.calc__expr {
+  min-height: 38px; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
+  text-align: right; font-size: 27px; font-weight: 700; color: var(--ink);
+  line-height: 38px; scrollbar-width: none;
+}
+.calc__expr::-webkit-scrollbar { display: none; }
+.calc__row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 24px; }
+.calc__preview {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right; font-size: 15px; color: var(--muted);
+}
+.calc__preview.is-error { color: var(--err-text); font-weight: 700; }
+.calc__back {
+  flex: none; width: 30px; height: 26px; padding: 0; border-radius: var(--radius);
+  border: 1px solid var(--line); background: transparent; color: var(--ink-soft);
+  font-size: 14px; line-height: 1; cursor: pointer;
+}
+.calc__back:hover, .calc__back.is-pressed { background: var(--hover); color: var(--ink); }
+
+/* Le clavier : quatre colonnes, comme sur un téléphone. */
+.calc__keys { flex: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.calc__key {
+  height: 46px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface-alt); color: var(--ink);
+  font-family: var(--font); font-size: 18px; font-weight: 700; cursor: pointer;
+}
+.calc__key:hover { background: var(--hover); }
+/* Touche enfoncée, au doigt comme au clavier : la frappe se voit. */
+.calc__key:active, .calc__key.is-pressed { transform: translateY(1px); filter: brightness(.94); }
+.calc__key--fn { color: var(--muted); font-size: 16px; }
+.calc__key--op { color: var(--red); font-size: 20px; }
+.calc__key--equals { background: var(--red); border-color: var(--red); color: #fff; font-size: 20px; }
+.calc__key--equals:hover { background: var(--red-dark); }
+
 /* Redimensionnement : une poignée par bord et par coin. Les coins passent
    au-dessus des bords pour rester saisissables, et restent assez petits
    pour ne pas manger les boutons de l'en-tête. Seul celui du bas à droite

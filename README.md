@@ -181,6 +181,16 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   suivent sans relancer le calcul. Un bouton ouvre l'itinéraire dans Google
   Maps pour la navigation, un autre copie la liste. La liste est conservée
   par le navigateur, le temps de revenir dessus.
+  **« Créer OM »** ouvre un nouvel ordre de mission avec cet itinéraire en
+  arrêts de Billet Collectif, dans l'ordre affiché et avec leur heure de
+  passage. Le dernier arrêt est proposé en dépose et les autres en prise en
+  charge — la forme d'un ramassage, qui fait porter à la dépose la somme des
+  voyageurs ; le dépôt, lui, est mis de côté : sur un OM ce sont les trajets
+  qui en partent et y reviennent. L'adresse d'une ligne, saisie d'un bloc,
+  est répartie entre les colonnes Adresse et Ville (`utils.split_address_city`,
+  qui reconnaît les formats de la BAN comme ceux de Google). Rien n'est
+  enregistré tant que le formulaire n'est pas validé : il y manque encore le
+  chauffeur et la date.
   **Heures de passage** : on en saisit une seule — départ, arrivée, ou
   n'importe quel arrêt — et chaque calcul remplit les autres à partir des
   durées de trajet, en avant comme en arrière ; la dernière heure saisie à
@@ -213,6 +223,20 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
 - **Mode sombre** : bouton lune / soleil dans la barre du haut. Par défaut,
   l'application suit le réglage clair / sombre de l'appareil ; le choix fait
   avec le bouton est mémorisé par le navigateur (donc par appareil).
+- **Calculatrice** : entre le mode sombre et le bloc-notes, un bouton ouvre
+  une calculatrice flottante, sur le modèle de celle des téléphones — on
+  écrit l'opération en entier (`1250+18%`), le résultat s'affiche sous la
+  ligne au fil de la frappe, et `=` la range dans l'**historique**. Un clic
+  sur une ligne de l'historique en **reprend le résultat** dans l'opération
+  en cours : c'est là tout l'intérêt quand un calcul en enchaîne un autre.
+  Le **pavé numérique et la rangée des chiffres marchent directement**, sans
+  avoir à cliquer dans la calculatrice (le pavé est lu par ses touches
+  physiques : il fonctionne verrouillage numérique éteint) ; une frappe qui
+  vise un champ de la page lui revient. Le pourcentage suit la règle des
+  calculatrices de téléphone : `200+10%` fait 220, `200×10%` fait 20.
+  L'historique et l'état ouvert / fermé vivent dans le **stockage de
+  session** du navigateur : ils suivent la navigation d'un onglet et
+  disparaissent avec lui — rien en base.
 
 ## Stack technique
 
