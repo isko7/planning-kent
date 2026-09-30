@@ -231,6 +231,11 @@ a:hover { text-decoration: underline; }
   line-height: 1.2;
 }
 .btn:hover { text-decoration: none; }
+/* `display: inline-flex` ci-dessus l'emporte sur la règle [hidden] du
+   navigateur : sans ceci, un bouton masqué par l'attribut `hidden` reste
+   visible (liens Maps du formulaire, masqués tant qu'il n'y a rien à
+   ouvrir). */
+.btn[hidden] { display: none; }
 .btn--primary { background: var(--red); color: #fff; }
 .btn--primary:hover { background: var(--red-dark); }
 .btn--secondary { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
@@ -392,6 +397,10 @@ table.edit-rows td.row-actions { white-space: nowrap; text-align: right; }
 .row-move:hover { color: var(--ink, #1a1a1a); }
 .row-move:disabled { opacity: .3; cursor: default; }
 .add-row-btn { margin-top: 4px; }
+/* Actions sous le tableau des trajets — ajouter une ligne, ouvrir
+   l'itinéraire complet : collées aux récaps qu'elles suivent, comme l'était
+   le bouton d'ajout seul. */
+.legs-actions { margin-top: 4px; }
 table.edit-rows select.relay-driver { width: 100%; background: var(--relay-bg); }
 
 /* ------------------------------------------------------------ mission */

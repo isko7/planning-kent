@@ -62,6 +62,26 @@ Déployée sur **Vercel** (fonctions serverless), base **MySQL**.
   en forme HTML des emails repose sur des blocs à marges fixes
   (`email_service._body_to_html`) et non sur des `<br>` empilés, qui
   donnaient des écarts irréguliers d'un client de messagerie à l'autre.
+- **Itinéraires sur un OM** (administrateurs), sur la fiche comme dans le
+  formulaire de création / modification : sous chaque trajet
+  « départ → arrivée » du tableau *Trajets*, les deux boutons d'estimation
+  — **⏱ TomTom** (serveur, clé jamais exposée) et **🗺 Maps** (Distance
+  Matrix, dans le navigateur) — suivis d'un **↗ Ouvrir** qui lance ce
+  trajet-là dans Google Maps. Sous le tableau, **🗺 Ouvrir l'itinéraire
+  complet dans Maps** enchaîne toute la mission, arrêts intermédiaires en
+  waypoints. Les points de contrôle et les pauses n'ont ni bouton ni lien :
+  ce ne sont pas des trajets. À la différence du lien envoyé au chauffeur,
+  le **dépôt de départ figure dans l'URL** — il n'y a personne à
+  géolocaliser derrière l'écran.
+
+  La fiche calcule ses liens au rendu (`routing.build_maps_url`) ; le
+  formulaire, où le libellé change sous les doigts, les **refait à chaque
+  frappe** dans le navigateur (`maps_links.js`, même règle, mêmes URL) et
+  les masque tant qu'il n'y a rien à ouvrir. L'estimation, elle, ne fait
+  qu'afficher : sur la fiche rien n'est enregistré (les kilomètres du récap
+  restent ceux estimés à la saisie), et l'API Google Maps n'y est chargée
+  qu'au premier clic sur « Maps », la fiche étant l'écran le plus ouvert de
+  l'application.
 - **Trois onglets sur la liste des OM** : *À venir*, *Missions passées* et
   *Missions archivées*. Les envois par email ne sont proposés que sur les
   missions à venir ; l'onglet des missions passées offre à la place un
@@ -458,6 +478,7 @@ app/
   email_service.py     envoi SMTP (basic ou OAuth2 O365)
   ical_service.py       génération du flux iCalendar (planning)
   routing.py           géocodage (BAN / TomTom), estimation de durée,
+                       liens Google Maps / Waze d'un itinéraire,
                        ordre de passage le plus court (Plan de Ramassage)
   utils.py             formats de date/heure en français
   routes/              blueprints Flask

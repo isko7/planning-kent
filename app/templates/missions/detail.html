@@ -160,7 +160,15 @@
     </div>
   </details>
 
-  <div class="card">
+  {# Les attributs de la carte alimentent l'estimation de durée de chaque
+     trajet (mission_itinerary.js). Administrateurs seulement : le point
+     d'entrée d'estimation leur est déjà réservé, et la clé Maps n'a pas à
+     partir dans la page d'un chauffeur. #}
+  <div class="card" id="legs-card"
+       {%- if is_admin %} data-mission-date="{{ mission.mission_date or '' }}"
+       data-estimate-url="{{ estimate_url }}"
+       data-depot-address="{{ depot_address }}"
+       data-google-maps-key="{{ google_maps_api_key }}"{% endif %}>
     <h2>Trajets (Ordre de Mission)</h2>
     {% if mission.legs %}
     <table class="data-table">
@@ -171,7 +179,28 @@
           <td>{{ l.start_time | fmt_time }}</td>
           <td>{{ l.end_time | fmt_time }}</td>
           <td>{{ l.vehicle_plate or '—' }}</td>
-          <td>{{ l.label }}</td>
+          <td>
+            {{ l.label }}
+            {# Sous le libellé, comme dans le formulaire : les deux
+               estimations de durée, puis l'ouverture du trajet dans Maps.
+               Rendus pour les seules lignes qui sont bien un « départ →
+               arrivée » — un point de contrôle ou une pause n'a ni durée à
+               estimer ni itinéraire à ouvrir. #}
+            {% if is_admin and l.maps_url %}
+            <div class="leg-estimate" data-leg-estimate
+                 data-from="{{ l.route_from }}" data-to="{{ l.route_to }}"
+                 data-start="{{ l.start_time or '' }}" data-end="{{ l.end_time or '' }}">
+              <button type="button" class="btn btn--ghost btn--sm estimate-leg" data-provider="tomtom"
+                      title="Estimer la durée avec le trafic (TomTom)">⏱ TomTom</button>
+              <button type="button" class="btn btn--ghost btn--sm estimate-leg" data-provider="google"
+                      title="Estimer la durée avec le trafic (Google Maps)">🗺 Maps</button>
+              <a href="{{ l.maps_url }}" target="_blank" rel="noopener"
+                 class="btn btn--ghost btn--sm" title="Ouvrir ce trajet dans Google Maps"
+                 aria-label="Ouvrir ce trajet dans Google Maps">↗ Ouvrir</a>
+              <span class="estimate-result"></span>
+            </div>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -195,6 +224,17 @@
       <span>Distance à vide : <strong>{{ legs_distance.empty | fmt_km }}</strong></span>
       <span class="legs-summary__sep" aria-hidden="true">-</span>
       <span>Distance Transport : <strong>{{ legs_distance.transport | fmt_km }}</strong></span>
+    </div>
+    {% endif %}
+    {# Ferme la section : l'itinéraire entier d'un coup, arrêts intermédiaires
+       en waypoints, dans l'ordre des trajets. Les trajets de conduite seuls
+       le composent (véhicule affecté, hors relais et points de contrôle),
+       comme celui envoyé au chauffeur — au dépôt de départ près, gardé ici
+       puisque personne n'est à géolocaliser devant l'écran. #}
+    {% if is_admin and itinerary_url %}
+    <div class="btn-row">
+      <a href="{{ itinerary_url }}" target="_blank" rel="noopener" class="btn btn--secondary btn--sm"
+         title="Ouvrir l'itinéraire complet de la mission dans Google Maps">🗺 Ouvrir l'itinéraire complet dans Maps</a>
     </div>
     {% endif %}
     {% else %}
@@ -268,6 +308,14 @@
   {% endif %}
 
   {% if is_admin %}{{ return_dialog() }}{% endif %}
+
+  {% if is_admin %}
+  {# Estimation de durée de la colonne Trajet. L'API Google Maps n'est pas
+     chargée ici : route_estimate.js l'appelle au premier clic sur « Maps »,
+     la fiche étant l'écran le plus ouvert de l'application. #}
+  <script src="{{ url_for('static', filename='js/route_estimate.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/mission_itinerary.js') }}"></script>
+  {% endif %}
 
   <script>
     (function () {

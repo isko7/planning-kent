@@ -15,7 +15,9 @@ from app.pdf_service import (
 from app.email_service import (send_mission_email, send_bulk_email,
                                send_followup_email, EmailError)
 from app.routing import (estimate_route, format_duration, add_minutes,
-                         build_driver_itinerary_url, build_driver_waze_urls, RoutingError)
+                         build_driver_itinerary_url, build_driver_waze_urls,
+                         build_leg_maps_url, build_mission_itinerary_url, leg_places,
+                         RoutingError)
 from app.routes.settings import get_address_search_provider
 from app.utils import (
     DEFAULT_PARTNER_EMAIL_BODY, DEFAULT_PARTNER_EMAIL_SUBJECT,
@@ -33,6 +35,12 @@ ATTACHMENT_POSITIONS = [
 ]
 
 ALLOWED_ATTACHMENT_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
+
+# Adresse géocodable du dépôt : « Dépôt KENT » n'en est pas une. Envoyée au
+# navigateur (data-depot-address) pour que l'estimation Google Maps lui
+# substitue la même adresse que le géocodage côté serveur (voir
+# routing.normalize_place).
+DEPOT_ADDRESS = f"{COMPANY['address']}, {COMPANY['postal_code']} {COMPANY['city']}"
 
 PER_PAGE = 50
 
@@ -188,7 +196,7 @@ def _form_context(mission=None):
         "mission": mission,
         "google_maps_api_key": GOOGLE_MAPS_API_KEY,
         "address_search_provider": get_address_search_provider(),
-        "depot_address": f"{COMPANY['address']}, {COMPANY['postal_code']} {COMPANY['city']}",
+        "depot_address": DEPOT_ADDRESS,
         "pause_labels": PAUSE_LABELS,
     }
 
@@ -394,11 +402,26 @@ def detail_mission(mission_id):
     # pied de page) — le contenu, lui, est la fiche entière, droits compris.
     embed = bool(request.args.get("embed"))
     linked = _linked_rows_for(repo.get_linked_mission_ids(mission_id)) if is_admin() else []
+    # Itinéraires : un lien Maps par trajet, plus celui de l'itinéraire
+    # entier sous le tableau. Réservés aux administrateurs, comme
+    # l'estimation de durée qui les accompagne (le point d'entrée
+    # missions.estimer-duree n'est pas dans auth.DRIVER_ENDPOINTS) — le
+    # chauffeur, lui, reçoit l'itinéraire par email.
+    itinerary_url = None
+    if is_admin():
+        for leg in mission["legs"]:
+            leg["route_from"], leg["route_to"] = leg_places(leg) or (None, None)
+            leg["maps_url"] = build_leg_maps_url(leg)
+        itinerary_url = build_mission_itinerary_url(mission["legs"])
     return render_template("missions/detail.html", mission=mission, emails=emails,
                             positions=ATTACHMENT_POSITIONS,
                             billing_summary=_billing_summary(mission),
                             legs_summary=legs_time_summary(mission["legs"]),
                             legs_distance=legs_distance_summary(mission["legs"]),
+                            itinerary_url=itinerary_url,
+                            estimate_url=url_for("missions.estimate_leg_duration"),
+                            google_maps_api_key=GOOGLE_MAPS_API_KEY if is_admin() else "",
+                            depot_address=DEPOT_ADDRESS,
                             linked_missions=linked, embed=embed)
 
 

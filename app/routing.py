@@ -278,10 +278,29 @@ def add_minutes(start_time, seconds):
     return f"{(total // 60) % 24:02d}:{total % 60:02d}"
 
 
-# ------------------------------------------------ itinéraire chauffeur
-# Lien Google Maps (navigation turn-by-turn) joint à l'email d'envoi de
-# l'OM, si le chauffeur a coché « Envoyer l'itinéraire » sur sa fiche.
+# ---------------------------------------------------------- itinéraires
+# Liens Google Maps (navigation turn-by-turn) construits depuis les
+# libellés « A → B » des trajets, pour deux lecteurs :
+# - le chauffeur, qui reçoit l'itinéraire complet par email (s'il a coché
+#   « Envoyer l'itinéraire » sur sa fiche) ;
+# - l'administrateur, qui ouvre depuis la fiche un trajet seul ou
+#   l'itinéraire entier.
 ARROW = " → "
+
+
+def leg_places(leg):
+    """(départ, arrivée) d'une ligne de trajet dont le libellé est « A → B ».
+
+    None quand ce n'en est pas un — point de contrôle (un lieu, pas un
+    trajet) ou libellé libre : il n'y a alors ni itinéraire à ouvrir ni
+    durée à estimer."""
+    if (leg or {}).get("is_checkpoint"):
+        return None
+    origin, arrow, destination = ((leg or {}).get("label") or "").partition(ARROW)
+    if not arrow:
+        return None
+    origin, destination = origin.strip(), destination.strip()
+    return (origin, destination) if origin and destination else None
 
 
 def _driving_places(legs):
@@ -291,36 +310,35 @@ def _driving_places(legs):
     « A → B » ajoute A (si différent du dernier lieu déjà ajouté) puis B."""
     places = []
     for leg in legs or []:
-        if leg.get("is_relay") or leg.get("is_checkpoint") or not leg.get("vehicle_id"):
+        if leg.get("is_relay") or not leg.get("vehicle_id"):
             continue
-        label = leg.get("label") or ""
-        if ARROW not in label:
+        pair = leg_places(leg)
+        if not pair:
             continue
-        origin, _, destination = label.partition(ARROW)
-        origin, destination = origin.strip(), destination.strip()
-        if not origin or not destination:
-            continue
+        origin, destination = pair
         if not places or places[-1].lower() != origin.lower():
             places.append(origin)
         places.append(destination)
     return places
 
 
-def build_driver_itinerary_url(legs):
-    """Lien https://www.google.com/maps/dir/... pour l'itinéraire complet
-    d'une mission (arrêts intermédiaires en waypoints), pensé pour être
-    ouvert depuis un téléphone :
-    - le dépôt de départ est omis de l'URL -> Google Maps utilise la
-      position actuelle du chauffeur comme origine ;
-    - le dépôt d'arrivée (et tout dépôt traversé en cours de route) est
-      remplacé par l'adresse réelle de l'entreprise, comme pour le
-      géocodage (voir normalize_place).
-    None si la mission n'a pas au moins 2 lieux de conduite exploitables."""
-    places = _driving_places(legs)
+def build_maps_url(places, from_current_position=False):
+    """Lien https://www.google.com/maps/dir/... passant par `places` dans
+    l'ordre, les lieux intermédiaires en waypoints. Un dépôt est remplacé
+    par l'adresse réelle de l'entreprise, comme pour le géocodage (voir
+    normalize_place).
+
+    `from_current_position` omet un dépôt de départ, pour que Google Maps
+    prenne la position du téléphone comme origine : c'est ce qu'attend un
+    chauffeur qui part du dépôt, pas un administrateur qui relit
+    l'itinéraire depuis son bureau.
+
+    None s'il n'y a pas au moins deux lieux exploitables."""
+    places = list(places or [])
     if len(places) < 2:
         return None
 
-    origin = None if is_depot(places[0]) else normalize_place(places[0])
+    origin = None if (from_current_position and is_depot(places[0])) else normalize_place(places[0])
     rest = [normalize_place(p) for p in places[1:]]
 
     params = {"api": "1", "travelmode": "driving", "destination": rest[-1]}
@@ -330,6 +348,28 @@ def build_driver_itinerary_url(legs):
     if waypoints:
         params["waypoints"] = "|".join(waypoints)
     return "https://www.google.com/maps/dir/?" + urllib.parse.urlencode(params, safe="|")
+
+
+def build_leg_maps_url(leg):
+    """Lien Google Maps d'une seule ligne de trajet — le bouton « Ouvrir »
+    de la colonne Trajet de la fiche. None si le libellé n'est pas
+    « départ → arrivée »."""
+    return build_maps_url(leg_places(leg) or ())
+
+
+def build_driver_itinerary_url(legs):
+    """Itinéraire complet d'une mission pour le chauffeur : joint à l'email
+    d'envoi de l'OM, donc ouvert depuis un téléphone — le dépôt de départ
+    cède la place à la position courante. None si la mission n'a pas au
+    moins 2 lieux de conduite exploitables."""
+    return build_maps_url(_driving_places(legs), from_current_position=True)
+
+
+def build_mission_itinerary_url(legs):
+    """Itinéraire complet d'une mission tel qu'on le relit sur la fiche
+    (bouton sous le tableau des trajets) : le dépôt de départ y figure —
+    personne n'est à géolocaliser derrière l'écran."""
+    return build_maps_url(_driving_places(legs))
 
 
 # Waze ne sait pas enchaîner plusieurs arrêts dans une URL : son lien

@@ -296,6 +296,12 @@
               <div class="leg-estimate">
                 <button type="button" class="btn btn--ghost btn--sm estimate-leg" data-provider="tomtom" title="Estimer la durée avec le trafic (TomTom)">⏱ TomTom</button>
                 <button type="button" class="btn btn--ghost btn--sm estimate-leg" data-provider="google" title="Estimer la durée avec le trafic (Google Maps)">🗺 Maps</button>
+                {# Refait à chaque modification de la ligne (mission_form.js :
+                   updateMapsLinks), et masqué tant que le libellé n'est pas
+                   un « départ → arrivée ». #}
+                <a class="btn btn--ghost btn--sm leg-maps-link" target="_blank" rel="noopener" hidden
+                   title="Ouvrir ce trajet dans Google Maps"
+                   aria-label="Ouvrir ce trajet dans Google Maps">↗ Ouvrir</a>
                 <span class="estimate-result"></span>
               </div>
             </td>
@@ -327,7 +333,14 @@
         <span class="legs-summary__sep" aria-hidden="true">-</span>
         <span>Distance Transport : <strong id="legs-summary-km-transport">—</strong></span>
       </div>
-      <button type="button" id="add-leg-row" class="btn btn--secondary btn--sm add-row-btn">+ Ajouter un trajet</button>
+      {# Même bouton que sur la fiche, à la même place : l'itinéraire entier,
+         arrêts intermédiaires en waypoints. Masqué tant qu'il n'y a pas deux
+         lieux de conduite à enchaîner. #}
+      <div class="btn-row legs-actions">
+        <button type="button" id="add-leg-row" class="btn btn--secondary btn--sm">+ Ajouter un trajet</button>
+        <a id="legs-itinerary-link" class="btn btn--secondary btn--sm" target="_blank" rel="noopener" hidden
+           title="Ouvrir l'itinéraire complet de la mission dans Google Maps">🗺 Ouvrir l'itinéraire complet dans Maps</a>
+      </div>
       <div class="hint" style="margin-top:8px;">Glissez un trajet par sa poignée ⠿ (ou les flèches ▲▼)
         pour changer l'ordre — c'est celui qui est enregistré et imprimé.<br>
         Début = fin ⇒ point de contrôle (prise/fin de service). <strong>(pause)</strong> : arrêt sans conduite. <strong>(relais)</strong> : changement de chauffeur/véhicule.
@@ -395,6 +408,9 @@
         <div class="leg-estimate">
           <button type="button" class="btn btn--ghost btn--sm estimate-leg" data-provider="tomtom" title="Estimer la durée avec le trafic (TomTom)">⏱ TomTom</button>
           <button type="button" class="btn btn--ghost btn--sm estimate-leg" data-provider="google" title="Estimer la durée avec le trafic (Google Maps)">🗺 Maps</button>
+          <a class="btn btn--ghost btn--sm leg-maps-link" target="_blank" rel="noopener" hidden
+             title="Ouvrir ce trajet dans Google Maps"
+             aria-label="Ouvrir ce trajet dans Google Maps">↗ Ouvrir</a>
           <span class="estimate-result"></span>
         </div>
       </td>
@@ -416,6 +432,12 @@
   {% from "missions/_return_dialog.html" import return_dialog %}
   {{ return_dialog() }}
   <script src="{{ url_for('static', filename='js/address_autocomplete.js') }}"></script>
+  {# Estimation de durée d'un trajet, partagée avec la fiche (detail.html) :
+     chargée avant mission_form.js, qui s'en sert au clic. #}
+  <script src="{{ url_for('static', filename='js/route_estimate.js') }}"></script>
+  {# Liens Google Maps refaits au fil de la saisie (pendant de
+     routing.build_maps_url, qui les calcule au rendu de la fiche). #}
+  <script src="{{ url_for('static', filename='js/maps_links.js') }}"></script>
   <script src="{{ url_for('static', filename='js/mission_form.js') }}"></script>
   <script src="{{ url_for('static', filename='js/stops_ocr.js') }}"></script>
 {% endblock %}

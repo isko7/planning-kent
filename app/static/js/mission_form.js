@@ -325,172 +325,111 @@ async function showAddressSuggestions(input) {
 // ------------------------------------------------ estimation de durée
 // 2 boutons indépendants par ligne de trajet, chacun son fournisseur —
 // TomTom (côté serveur, clé jamais exposée) et Google Maps (côté
-// navigateur, via la clé Maps JavaScript API). Affichage seul dans les
-// deux cas : les heures saisies (leg_start_time/leg_end_time), donc
-// l'amplitude / la conduite / la pause du récap, ne sont jamais modifiées
-// par un clic sur « Estimer ».
+// navigateur, via la clé Maps JavaScript API). Le calcul lui-même est
+// partagé avec la fiche (route_estimate.js) ; il ne reste ici que ce qui
+// touche au formulaire : lire la ligne, écrire la distance estimée dans son
+// champ caché, rafraîchir le récap. Affichage seul pour les horaires : les
+// heures saisies (leg_start_time/leg_end_time), donc l'amplitude / la
+// conduite / la pause du récap, ne sont jamais modifiées par un clic sur
+// « Estimer ».
 const DEPOT_FOLD = "depot kent";
 
 function foldPlace(text) {
   return (text || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-// Même règle que routing.normalize_place() côté serveur : « Dépôt KENT »
-// n'est pas une adresse géocodable, on lui substitue celle de l'entreprise.
-function normalizePlaceForGoogle(text) {
-  const place = (text || "").trim();
-  if (foldPlace(place) === DEPOT_FOLD) {
-    const form = document.getElementById("mission-form");
-    return (form && form.dataset.depotAddress) || place;
-  }
-  return place;
-}
-
-function splitLegLabel(tr, result) {
-  const label = tr.querySelector('[name="leg_label[]"]').value;
-  const parts = label.split(ARROW);
-  if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) {
+function estimateLeg(button) {
+  const tr = button.closest("tr");
+  const result = tr.querySelector(".estimate-result");
+  const parts = window.KentRouteEstimate.splitLabel(tr.querySelector('[name="leg_label[]"]').value);
+  if (!parts) {
     result.textContent = "Libellé attendu : « départ → arrivée »";
-    result.className = "estimate-result estimate-result--error";
-    return null;
-  }
-  return [parts[0].trim(), parts[1].trim()];
-}
-
-function formatDurationJs(seconds) {
-  const minutes = Math.round(seconds / 60);
-  const h = Math.floor(minutes / 60), m = minutes % 60;
-  return h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`;
-}
-
-function addMinutesToHHMM(startMinutes, deltaSeconds) {
-  const total = startMinutes + Math.round(deltaSeconds / 60);
-  const norm = ((total % 1440) + 1440) % 1440;
-  return `${String(Math.floor(norm / 60)).padStart(2, "0")}:${String(norm % 60).padStart(2, "0")}`;
-}
-
-// Date de départ pour le calcul de trafic : celle saisie si elle est dans
-// le futur (mission_date + start_time, ou end_time à défaut), sinon "now"
-// (trafic courant) — même repli que _datetime_param() côté serveur.
-function computeDepartureDate(missionDate, time) {
-  const now = new Date();
-  const mins = parseHHMM(time);
-  if (!missionDate || mins == null) return { date: now, scheduled: false };
-  const d = new Date(missionDate + "T00:00:00");
-  d.setMinutes(d.getMinutes() + mins);
-  return d > now ? { date: d, scheduled: true } : { date: now, scheduled: false };
-}
-
-async function estimateLegTomtom(button, tr, result) {
-  const parts = splitLegLabel(tr, result);
-  if (!parts) return;
-  const form = document.getElementById("mission-form");
-
-  const body = new FormData();
-  body.append("from", parts[0]);
-  body.append("to", parts[1]);
-  body.append("start_time", tr.querySelector('[name="leg_start_time[]"]').value.trim());
-  body.append("end_time", tr.querySelector('[name="leg_end_time[]"]').value.trim());
-  const missionDate = document.querySelector('[name="mission_date"]');
-  body.append("mission_date", missionDate ? missionDate.value : "");
-
-  result.className = "estimate-result";
-  result.textContent = "Calcul…";
-  button.disabled = true;
-  try {
-    const resp = await fetch(form.dataset.estimateUrl, { method: "POST", body });
-    const data = await resp.json();
-    if (!resp.ok || !data.ok) {
-      result.textContent = data.error || "Estimation indisponible.";
-      result.className = "estimate-result estimate-result--error";
-      return;
-    }
-    let text = `TomTom ≈ ${data.duration}`;
-    if (data.arrival_time) text += ` (arrivée estimée ${data.arrival_time})`;
-    else if (data.departure_time) text += ` (départ estimé ${data.departure_time})`;
-    text += ` · ${data.km} km`;
-    if (data.traffic_min > 0) text += ` (dont ${data.traffic_min} min de trafic)`;
-    if (!data.with_traffic_at) text += " · trafic actuel";
-    result.textContent = text;
-    setMeters(tr, data.meters != null ? data.meters : data.km * 1000);
-    const info = legKey(tr);
-    if (info) tr.dataset.estKey = info.key;
-  } catch (e) {
-    result.textContent = "Estimation indisponible : " + e.message;
-    result.className = "estimate-result estimate-result--error";
-  } finally {
-    button.disabled = false;
-    scheduleLegsSummaryUpdate();
-  }
-}
-
-function estimateLegGoogle(button, tr, result) {
-  const parts = splitLegLabel(tr, result);
-  if (!parts) return;
-  if (!googleAvailable() || !google.maps.DistanceMatrixService) {
-    result.textContent = "Clé Google Maps absente : renseignez GOOGLE_MAPS_API_KEY.";
     result.className = "estimate-result estimate-result--error";
     return;
   }
 
-  const origin = normalizePlaceForGoogle(parts[0]);
-  const destination = normalizePlaceForGoogle(parts[1]);
-  const startTime = tr.querySelector('[name="leg_start_time[]"]').value.trim();
-  const endTime = tr.querySelector('[name="leg_end_time[]"]').value.trim();
-  const missionDateInput = document.querySelector('[name="mission_date"]');
-  const missionDate = missionDateInput ? missionDateInput.value : "";
-  const { date: departure, scheduled } = computeDepartureDate(missionDate, startTime || endTime);
-
+  const form = document.getElementById("mission-form");
+  const missionDate = document.querySelector('[name="mission_date"]');
   result.className = "estimate-result";
   result.textContent = "Calcul…";
   button.disabled = true;
-  new google.maps.DistanceMatrixService().getDistanceMatrix(
-    {
-      origins: [origin],
-      destinations: [destination],
-      travelMode: google.maps.TravelMode.DRIVING,
-      drivingOptions: { departureTime: departure, trafficModel: google.maps.TrafficModel.BEST_GUESS },
-      unitSystem: google.maps.UnitSystem.METRIC,
-    },
-    (response, status) => {
-      button.disabled = false;
-      if (status !== "OK") {
-        result.textContent = "Estimation indisponible (" + status + ").";
-        result.className = "estimate-result estimate-result--error";
-        return;
-      }
-      const el = response.rows[0] && response.rows[0].elements[0];
-      if (!el || el.status !== "OK") {
-        result.textContent = "Itinéraire introuvable.";
-        result.className = "estimate-result estimate-result--error";
-        return;
-      }
-      const durationInfo = el.duration_in_traffic || el.duration;
-      const km = Math.round(el.distance.value / 1000);
-      const startMinutes = parseHHMM(startTime), endMinutes = parseHHMM(endTime);
-      let text = `Maps ≈ ${formatDurationJs(durationInfo.value)}`;
-      if (startMinutes != null) text += ` (arrivée estimée ${addMinutesToHHMM(startMinutes, durationInfo.value)})`;
-      else if (endMinutes != null) text += ` (départ estimé ${addMinutesToHHMM(endMinutes, -durationInfo.value)})`;
-      text += ` · ${km} km`;
-      if (el.duration_in_traffic) {
-        const trafficMin = Math.round((el.duration_in_traffic.value - el.duration.value) / 60);
-        if (trafficMin > 0) text += ` (dont ${trafficMin} min de trafic)`;
-      }
-      if (!scheduled) text += " · trafic actuel";
-      result.textContent = text;
-      setMeters(tr, el.distance.value);
-      const info = legKey(tr);
-      if (info) tr.dataset.estKey = info.key;
-      scheduleLegsSummaryUpdate();
-    }
-  );
+  window.KentRouteEstimate.estimate(button.dataset.provider, {
+    from: parts[0],
+    to: parts[1],
+    startTime: tr.querySelector('[name="leg_start_time[]"]').value.trim(),
+    endTime: tr.querySelector('[name="leg_end_time[]"]').value.trim(),
+    missionDate: missionDate ? missionDate.value : "",
+    estimateUrl: form.dataset.estimateUrl,
+    depotAddress: form.dataset.depotAddress,
+  }).then((estimation) => {
+    result.textContent = estimation.text;
+    setMeters(tr, estimation.meters);
+    // La ligne vaut pour estimée : le récap n'a plus à la recalculer.
+    const info = legKey(tr);
+    if (info) tr.dataset.estKey = info.key;
+  }).catch((e) => {
+    result.textContent = e.message;
+    result.className = "estimate-result estimate-result--error";
+  }).finally(() => {
+    button.disabled = false;
+    scheduleLegsSummaryUpdate();
+  });
 }
 
-function estimateLeg(button) {
-  const tr = button.closest("tr");
-  const result = tr.querySelector(".estimate-result");
-  if (button.dataset.provider === "google") estimateLegGoogle(button, tr, result);
-  else estimateLegTomtom(button, tr, result);
+// ---------------------------------------------------- liens Google Maps
+// Les mêmes boutons que sur la fiche : « ↗ Ouvrir » sur chaque trajet, et
+// l'itinéraire complet sous le tableau. Ici les libellés changent sous les
+// doigts, les liens sont donc refaits à chaque modification du tableau (voir
+// scheduleLegsSummaryUpdate) et masqués tant qu'il n'y a rien à ouvrir.
+function legLabelValue(tr) {
+  return tr.querySelector('[name="leg_label[]"]').value;
+}
+
+function legVehicleValue(tr) {
+  const sel = tr.querySelector('[name="leg_vehicle_id[]"]');
+  return sel ? sel.value : "";
+}
+
+// Point de contrôle : début = fin, ou une prise / fin de service (dont les
+// heures restent vides). Même règle que _parse_legs() côté serveur, et même
+// conséquence que leg_places() : un point de contrôle est un lieu, pas un
+// trajet — ni itinéraire à ouvrir, ni durée à estimer.
+function legIsCheckpoint(tr) {
+  const label = legLabelValue(tr).trim().toLowerCase();
+  const start = parseHHMM(tr.querySelector('[name="leg_start_time[]"]').value);
+  const end = parseHHMM(tr.querySelector('[name="leg_end_time[]"]').value);
+  const isService = label.startsWith("prise de service") || label.startsWith("fin de service");
+  return ((start != null && start === end) || isService) && legVehicleValue(tr) !== "relais";
+}
+
+function depotAddress() {
+  const form = document.getElementById("mission-form");
+  return (form && form.dataset.depotAddress) || "";
+}
+
+function updateMapsLinks() {
+  if (!window.KentMapsLinks) return;
+  const depot = depotAddress();
+  const rows = Array.from(document.querySelectorAll("#legs-body tr"));
+  rows.forEach((tr) => {
+    const link = tr.querySelector(".leg-maps-link");
+    if (!link) return;
+    const url = legIsCheckpoint(tr) ? null : window.KentMapsLinks.legUrl(legLabelValue(tr), depot);
+    link.hidden = !url;
+    if (url) link.href = url;
+  });
+
+  const full = document.getElementById("legs-itinerary-link");
+  if (!full) return;
+  const url = window.KentMapsLinks.itineraryUrl(rows.map((tr) => {
+    const vehicle = legVehicleValue(tr);
+    return {
+      label: legLabelValue(tr),
+      driving: !!vehicle && !NON_DRIVING_VEHICLES.includes(vehicle) && !legIsCheckpoint(tr),
+    };
+  }), depot);
+  full.hidden = !url;
+  if (url) full.href = url;
 }
 
 // -------------------------------------------- récap Trajets (km / temps)
@@ -660,6 +599,7 @@ async function updateLegsKmTotal() {
 let legsSummaryTimer = null;
 function scheduleLegsSummaryUpdate() {
   updateLegsTimeSummary();
+  updateMapsLinks();
   clearTimeout(legsSummaryTimer);
   legsSummaryTimer = setTimeout(updateLegsKmTotal, 600);
 }
